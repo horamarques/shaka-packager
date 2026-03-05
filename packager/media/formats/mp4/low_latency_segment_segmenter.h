@@ -57,7 +57,7 @@ class LowLatencySegmentSegmenter : public Segmenter {
 
   uint64_t GetSegmentDuration();
   // Returns the duration of the nth chunk (0-indexed) from the SIDX references.
-  int64_t GetChunkDuration(size_t chunk_index) const;
+  int64_t GetChunkDuration(size_t chunk_index);
 
   std::unique_ptr<SegmentType> styp_;
   uint32_t num_segments_;

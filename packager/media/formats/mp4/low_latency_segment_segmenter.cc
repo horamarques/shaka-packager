@@ -240,7 +240,7 @@ Status LowLatencySegmentSegmenter::FinalizeSegment(int64_t segment_number) {
   return Status::OK;
 }
 
-int64_t LowLatencySegmentSegmenter::GetChunkDuration(size_t chunk_index) const {
+int64_t LowLatencySegmentSegmenter::GetChunkDuration(size_t chunk_index) {
   DCHECK(sidx());
   if (chunk_index >= sidx()->references.size()) return 0;
   return static_cast<int64_t>(
