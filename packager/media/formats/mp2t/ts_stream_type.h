@@ -46,6 +46,10 @@ enum class TsStreamType {
   // info in headers.
   kDvbSubtitles = 0x100,
   kTeletextSubtitles = 0x101,
+  // SCTE-35 uses stream_type 0x86 in PMT, which conflicts with kDtsHd.
+  // Disambiguation is done via the CUEI registration descriptor in PMT.
+  // This internal value is assigned when CUEI is detected.
+  kScte35 = 0x102,
 };
 
 }  // namespace mp2t

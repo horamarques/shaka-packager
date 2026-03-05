@@ -77,6 +77,7 @@ mp2t_media_parser_unittest.cc
 mpeg1_header_unittest.cc
 pes_packet_generator_unittest.cc
 program_map_table_writer_unittest.cc
+ts_section_pmt_unittest.cc
 ts_segmenter_unittest.cc
 ts_writer_unittest.cc
   )
