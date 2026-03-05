@@ -53,6 +53,13 @@ class SimpleHlsNotifier : public HlsNotifier {
                        uint32_t* stream_id) override;
   bool NotifySampleDuration(uint32_t stream_id,
                             int32_t sample_duration) override;
+  bool NotifyNewPartialSegment(uint32_t stream_id,
+                               const std::string& segment_name,
+                               int64_t start_time,
+                               int64_t duration,
+                               bool is_independent,
+                               uint64_t start_byte_offset,
+                               uint64_t size) override;
   bool NotifyNewSegment(uint32_t stream_id,
                         const std::string& segment_name,
                         int64_t start_time,

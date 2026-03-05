@@ -70,6 +70,12 @@ class HlsNotifyMuxerListener : public MuxerListener {
   void OnSampleDurationReady(int32_t sample_duration) override;
   void OnMediaEnd(const MediaRanges& media_ranges,
                   float duration_seconds) override;
+  void OnNewPartialSegment(const std::string& segment_name,
+                           int64_t start_time,
+                           int64_t duration,
+                           bool is_independent,
+                           uint64_t start_byte_offset,
+                           uint64_t size) override;
   void OnNewSegment(const std::string& file_name,
                     int64_t start_time,
                     int64_t duration,

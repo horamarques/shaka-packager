@@ -72,7 +72,7 @@ Status LowLatencySegmentSegmenter::DoFinalize() {
 }
 
 Status LowLatencySegmentSegmenter::DoFinalizeSegment(int64_t segment_number) {
-  return FinalizeSegment();
+  return FinalizeSegment(segment_number);
 }
 
 Status LowLatencySegmentSegmenter::DoFinalizeChunk(int64_t segment_number) {
@@ -151,19 +151,31 @@ Status LowLatencySegmentSegmenter::WriteInitialChunk(int64_t segment_number) {
   UpdateProgress(segment_duration);
 
   if (muxer_listener()) {
-    if (!ll_dash_mpd_values_initialized_) {
-      // Set necessary values for LL-DASH mpd after the first chunk has been
-      // processed.
-      muxer_listener()->OnSampleDurationReady(sample_duration());
-      muxer_listener()->OnAvailabilityOffsetReady();
-      muxer_listener()->OnSegmentDurationReady();
-      ll_dash_mpd_values_initialized_ = true;
+    if (options().mp4_params.low_latency_hls_mode) {
+      // LL-HLS mode: record segment start time and notify this partial segment.
+      segment_start_time_ = sidx()->earliest_presentation_time;
+      const int64_t chunk_duration = GetChunkDuration(0);
+      const bool is_independent = !key_frame_infos().empty();
+      chunk_byte_offset_ = segment_size_;  // offset where next chunk will start
+      chunks_duration_sum_ = chunk_duration;
+      num_chunks_in_seg_ = 1;
+      muxer_listener()->OnNewPartialSegment(
+          file_name_, segment_start_time_, chunk_duration, is_independent,
+          /*start_byte_offset=*/0u, segment_size_);
+    } else {
+      // LL-DASH mode: notify the full segment immediately on the first chunk.
+      if (!ll_dash_mpd_values_initialized_) {
+        muxer_listener()->OnSampleDurationReady(sample_duration());
+        muxer_listener()->OnAvailabilityOffsetReady();
+        muxer_listener()->OnSegmentDurationReady();
+        ll_dash_mpd_values_initialized_ = true;
+      }
+      // Add the current segment in the manifest.
+      // Following chunks will be appended to the open segment file.
+      muxer_listener()->OnNewSegment(
+          file_name_, sidx()->earliest_presentation_time, segment_duration,
+          segment_size_, segment_number);
     }
-    // Add the current segment in the manifest.
-    // Following chunks will be appended to the open segment file.
-    muxer_listener()->OnNewSegment(
-        file_name_, sidx()->earliest_presentation_time, segment_duration,
-        segment_size_, segment_number);
     is_initial_chunk_in_seg_ = false;
   }
 
@@ -173,16 +185,36 @@ Status LowLatencySegmentSegmenter::WriteInitialChunk(int64_t segment_number) {
 Status LowLatencySegmentSegmenter::WriteChunk() {
   DCHECK(fragment_buffer());
 
+  const uint64_t chunk_data_size = fragment_buffer()->Size();
+
   // Write the chunk data to the file
   RETURN_IF_ERROR(fragment_buffer()->WriteToFile(segment_file_.get()));
 
   UpdateProgress(GetSegmentDuration());
 
+  if (muxer_listener() && options().mp4_params.low_latency_hls_mode) {
+    // LL-HLS mode: update total size and notify this partial segment.
+    segment_size_ += chunk_data_size;
+    const int64_t chunk_duration = GetChunkDuration(num_chunks_in_seg_);
+    muxer_listener()->OnNewPartialSegment(
+        file_name_, segment_start_time_ + chunks_duration_sum_, chunk_duration,
+        /*is_independent=*/false, chunk_byte_offset_, chunk_data_size);
+    chunk_byte_offset_ += chunk_data_size;
+    chunks_duration_sum_ += chunk_duration;
+    num_chunks_in_seg_++;
+  }
+
   return Status::OK;
 }
 
-Status LowLatencySegmentSegmenter::FinalizeSegment() {
+Status LowLatencySegmentSegmenter::FinalizeSegment(int64_t segment_number) {
   if (muxer_listener()) {
+    if (options().mp4_params.low_latency_hls_mode) {
+      // LL-HLS: the full segment is now complete; add it to the manifest.
+      muxer_listener()->OnNewSegment(file_name_, segment_start_time_,
+                                     GetSegmentDuration(), segment_size_,
+                                     segment_number);
+    }
     muxer_listener()->OnCompletedSegment(GetSegmentDuration(), segment_size_);
   }
   // Close the file now that the final chunk has been written
@@ -199,7 +231,20 @@ Status LowLatencySegmentSegmenter::FinalizeSegment() {
   segment_size_ = 0u;
   num_segments_++;
 
+  // Reset LL-HLS tracking state.
+  chunk_byte_offset_ = 0u;
+  num_chunks_in_seg_ = 0u;
+  segment_start_time_ = 0;
+  chunks_duration_sum_ = 0;
+
   return Status::OK;
+}
+
+int64_t LowLatencySegmentSegmenter::GetChunkDuration(size_t chunk_index) const {
+  DCHECK(sidx());
+  if (chunk_index >= sidx()->references.size()) return 0;
+  return static_cast<int64_t>(
+      sidx()->references[chunk_index].subsegment_duration);
 }
 
 uint64_t LowLatencySegmentSegmenter::GetSegmentDuration() {

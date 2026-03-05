@@ -11,6 +11,8 @@
 #include <string>
 #include <vector>
 
+#include <packager/macros/compiler.h>
+
 #include <packager/hls_params.h>
 #include <packager/mpd/base/media_info.pb.h>
 
@@ -50,6 +52,32 @@ class HlsNotifier {
   ///         specified by @a stream_id does not exist.
   virtual bool NotifySampleDuration(uint32_t stream_id,
                                     int32_t sample_duration) = 0;
+
+  /// Notify that a partial segment (chunk) has been written. For LL-HLS only.
+  /// @param stream_id is the value set by NotifyNewStream().
+  /// @param segment_name is the name of the containing segment file.
+  /// @param start_time is the start time in timescale units.
+  /// @param duration is the duration in timescale units.
+  /// @param is_independent true if this partial segment starts with a key frame.
+  /// @param start_byte_offset byte offset within the segment file.
+  /// @param size size of this partial segment in bytes.
+  /// @return true on success, false otherwise.
+  virtual bool NotifyNewPartialSegment(uint32_t stream_id,
+                                       const std::string& segment_name,
+                                       int64_t start_time,
+                                       int64_t duration,
+                                       bool is_independent,
+                                       uint64_t start_byte_offset,
+                                       uint64_t size) {
+    UNUSED(stream_id);
+    UNUSED(segment_name);
+    UNUSED(start_time);
+    UNUSED(duration);
+    UNUSED(is_independent);
+    UNUSED(start_byte_offset);
+    UNUSED(size);
+    return true;
+  }
 
   /// @param stream_id is the value set by NotifyNewStream().
   /// @param segment_name is the name of the new segment.
