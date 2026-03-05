@@ -1,6 +1,6 @@
-####################################
-Low Latency DASH (LL-DASH) Streaming
-####################################
+############################################
+Low Latency Streaming (LL-DASH and LL-HLS)
+############################################
 
 ************
 Introduction
@@ -33,7 +33,9 @@ All HTTP requests will use chunked transfer encoding:
 
 .. note::
 
-    Only LL-DASH is supported. LL-HLS support is yet to come.
+    Both LL-DASH and LL-HLS are supported. The two modes are mutually exclusive;
+    use ``--low_latency_dash_mode`` for MPEG-DASH output and
+    ``--low_latency_hls_mode`` for HLS output.
 
 Synopsis
 ========
@@ -101,3 +103,120 @@ Examples of supporting players:
 * `Shaka Player <https://github.com/shaka-project/shaka-player>`_
 * `dash.js <https://github.com/Dash-Industry-Forum/dash.js>`_
 * `Streamline Low Latency DASH preview <https://github.com/streamlinevideo/low-latency-preview>`_
+
+
+####################################
+Low Latency HLS (LL-HLS) Streaming
+####################################
+
+************
+Introduction
+************
+
+Apple Low Latency HLS (LL-HLS) is defined in `RFC 8216bis
+<https://datatracker.ietf.org/doc/html/draft-pantos-hls-rfc8216bis>`_ and
+reduces end-to-end latency by splitting each segment into smaller *partial
+segments* that are published as soon as they are encoded.  Clients can begin
+downloading a partial segment before the containing full segment is complete.
+
+When ``--low_latency_hls_mode`` is enabled, Shaka Packager produces:
+
+* **EXT-X-PART** tags for each partial segment (chunk), with ``BYTERANGE``
+  attributes pointing into the containing segment file.
+* An **EXT-X-PART-INF** header advertising the ``PART-TARGET`` duration.
+* An **EXT-X-SERVER-CONTROL** header with ``CAN-BLOCK-RELOAD=YES`` and
+  ``PART-HOLD-BACK`` set to three times the part target duration.
+* An **EXT-X-PRELOAD-HINT** tag so that clients can issue a blocking request
+  for the next partial segment before it is available.
+* HLS playlist version 9, as required by the LL-HLS specification.
+
+*************
+Documentation
+*************
+
+Getting started
+===============
+
+Enable LL-HLS mode with the ``--low_latency_hls_mode`` flag.  You must also
+provide an HLS master playlist output and use a LIVE or EVENT playlist type::
+
+    --low_latency_hls_mode=true
+    --hls_master_playlist_output <path_or_url>/master.m3u8
+    --hls_playlist_type LIVE
+
+Optional tuning
+---------------
+
+``--hls_part_target_duration`` (default ``0.5``) sets the target duration in
+seconds for each partial segment.  This value is written into
+``EXT-X-PART-INF:PART-TARGET`` and used to compute ``PART-HOLD-BACK``.
+
+Synopsis
+========
+
+Here is a basic example using a UNIX pipe from FFmpeg::
+
+    export PIPE=/tmp/bigbuckbunny.fifo
+    mkfifo ${PIPE}
+
+Transcode the source stream::
+
+    ffmpeg -fflags nobuffer -threads 0 -y \
+        -i rtmp://184.72.239.149/vod/mp4:bigbuckbunny_450.mp4 \
+        -pix_fmt yuv420p -vcodec libx264 -preset:v superfast -acodec aac \
+        -f mpegts pipe: > ${PIPE}
+
+Run the packager::
+
+    export OUTPUT_DIR=/var/www/hls/ll
+
+    packager \
+        "input=${PIPE},stream=audio,init_segment=${OUTPUT_DIR}/audio_init.mp4,segment_template=${OUTPUT_DIR}/audio_\$Number%04d\$.mp4,playlist_name=audio.m3u8" \
+        "input=${PIPE},stream=video,init_segment=${OUTPUT_DIR}/video_init.mp4,segment_template=${OUTPUT_DIR}/video_\$Number%04d\$.mp4,playlist_name=video.m3u8" \
+        --io_block_size 65536 \
+        --segment_duration 2 \
+        --low_latency_hls_mode=true \
+        --hls_playlist_type LIVE \
+        --hls_master_playlist_output "${OUTPUT_DIR}/master.m3u8"
+
+Each segment file will contain one ``styp`` box followed by multiple
+``moof+mdat`` chunks, one per video frame (or audio frame group).  The HLS
+media playlist is rewritten after every chunk, so clients can start playing
+within one partial-segment duration of the live edge.
+
+*************************
+Low Latency Compatibility
+*************************
+
+Delivery Pipeline
+=================
+
+Because LL-HLS clients issue byte-range requests for partial segments that
+may still be growing on disk, the origin server must support:
+
+* **HTTP/1.1 chunked transfer encoding** or **HTTP/2 / HTTP/3** for partial
+  responses.
+* **Blocking playlist reload** — the server should hold a ``GET`` request for
+  the playlist until a new version is available (indicated by the
+  ``_HLS_msn`` and ``_HLS_part`` query parameters).
+
+Examples of supporting delivery systems:
+
+* `AWS MediaStore <https://aws.amazon.com/mediastore/>`_
+* `go-chunked-streaming-server <https://github.com/mjneil/go-chunked-streaming-server>`_
+* Any CDN or origin that supports HTTP range requests on in-progress files.
+
+Player
+======
+
+The player must support LL-HLS playout, including:
+
+* ``EXT-X-PART`` / ``EXT-X-PART-INF`` parsing.
+* ``EXT-X-PRELOAD-HINT`` for low-latency prefetch.
+* Blocking playlist reload via ``_HLS_msn`` / ``_HLS_part`` query parameters.
+
+Examples of supporting players:
+
+* `Shaka Player <https://github.com/shaka-project/shaka-player>`_ (v4.3+)
+* `HLS.js <https://github.com/video-dev/hls.js>`_ (v1.2+)
+* Native Apple players (Safari, AVPlayer) on Apple platforms.

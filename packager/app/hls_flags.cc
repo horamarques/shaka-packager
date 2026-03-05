@@ -56,3 +56,15 @@ ABSL_FLAG(bool,
           false,
           "Add EXT-X-PROGRAM-DATE-TIME tag to the playlist. The date time is "
           "derived from the current wall clock time.");
+ABSL_FLAG(bool,
+          low_latency_hls_mode,
+          false,
+          "Set to true to enable Apple Low Latency HLS (LL-HLS) output. "
+          "Requires a segment_template and a LIVE or EVENT playlist type. "
+          "Each segment is split into partial segments (EXT-X-PART) to "
+          "reduce latency. Implies chunked transfer encoding.");
+ABSL_FLAG(double,
+          hls_part_target_duration,
+          0.5,
+          "Floating-point target duration in seconds for each LL-HLS partial "
+          "segment (EXT-X-PART-INF:PART-TARGET). Defaults to 0.5 seconds.");

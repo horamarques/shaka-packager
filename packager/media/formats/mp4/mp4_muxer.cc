@@ -334,7 +334,8 @@ Status MP4Muxer::DelayInitializeMuxer() {
   if (options().segment_template.empty()) {
     segmenter_.reset(new SingleSegmentSegmenter(options(), std::move(ftyp),
                                                 std::move(moov)));
-  } else if (options().mp4_params.low_latency_dash_mode) {
+  } else if (options().mp4_params.low_latency_dash_mode ||
+             options().mp4_params.low_latency_hls_mode) {
     segmenter_.reset(new LowLatencySegmentSegmenter(options(), std::move(ftyp),
                                                     std::move(moov)));
   } else {

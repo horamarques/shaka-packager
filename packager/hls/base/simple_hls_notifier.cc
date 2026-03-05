@@ -363,6 +363,41 @@ bool SimpleHlsNotifier::NotifySampleDuration(uint32_t stream_id,
   return true;
 }
 
+bool SimpleHlsNotifier::NotifyNewPartialSegment(uint32_t stream_id,
+                                                const std::string& segment_name,
+                                                int64_t start_time,
+                                                int64_t duration,
+                                                bool is_independent,
+                                                uint64_t start_byte_offset,
+                                                uint64_t size) {
+  absl::MutexLock lock(&lock_);
+  auto stream_iterator = stream_map_.find(stream_id);
+  if (stream_iterator == stream_map_.end()) {
+    LOG(ERROR) << "Cannot find stream with ID: " << stream_id;
+    return false;
+  }
+  auto& media_playlist = stream_iterator->second->media_playlist;
+  const std::string& segment_url =
+      GenerateSegmentUrl(segment_name, hls_params().base_url,
+                         master_playlist_dir_, media_playlist->file_name());
+  media_playlist->AddPartialSegment(segment_url, start_time, duration,
+                                    is_independent, start_byte_offset, size);
+
+  // Write playlist immediately after each partial segment in live mode so
+  // clients can start downloading partial segments with low latency.
+  if (hls_params().playlist_type == HlsPlaylistType::kLive ||
+      hls_params().playlist_type == HlsPlaylistType::kEvent) {
+    if (!WriteMediaPlaylist(master_playlist_dir_, media_playlist.get()))
+      return false;
+    if (!master_playlist_->WriteMasterPlaylist(
+            hls_params().base_url, master_playlist_dir_, media_playlists_)) {
+      LOG(ERROR) << "Failed to write master playlist.";
+      return false;
+    }
+  }
+  return true;
+}
+
 bool SimpleHlsNotifier::NotifyNewSegment(uint32_t stream_id,
                                          const std::string& segment_name,
                                          int64_t start_time,
