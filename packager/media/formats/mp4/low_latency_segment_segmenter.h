@@ -53,9 +53,11 @@ class LowLatencySegmentSegmenter : public Segmenter {
   Status WriteInitSegment();
   Status WriteChunk();
   Status WriteInitialChunk(int64_t segment_number);
-  Status FinalizeSegment();
+  Status FinalizeSegment(int64_t segment_number);
 
   uint64_t GetSegmentDuration();
+  // Returns the duration of the nth chunk (0-indexed) from the SIDX references.
+  int64_t GetChunkDuration(size_t chunk_index) const;
 
   std::unique_ptr<SegmentType> styp_;
   uint32_t num_segments_;
@@ -64,6 +66,15 @@ class LowLatencySegmentSegmenter : public Segmenter {
   std::unique_ptr<File, FileCloser> segment_file_;
   std::string file_name_;
   size_t segment_size_ = 0u;
+
+  // LL-HLS tracking: byte offset within the current segment file.
+  uint64_t chunk_byte_offset_ = 0u;
+  // Number of chunks written so far in the current segment.
+  size_t num_chunks_in_seg_ = 0u;
+  // Start time of the current segment (from the first chunk's presentation time)
+  int64_t segment_start_time_ = 0;
+  // Cumulative duration of chunks written so far in the current segment.
+  int64_t chunks_duration_sum_ = 0;
 
   DISALLOW_COPY_AND_ASSIGN(LowLatencySegmentSegmenter);
 };

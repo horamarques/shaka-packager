@@ -120,6 +120,31 @@ class MuxerListener {
   virtual void OnMediaEnd(const MediaRanges& media_ranges,
                           float duration_seconds) = 0;
 
+  /// Called when a partial segment (chunk) has been written. For LL-HLS only.
+  /// Called after each chunk within a segment is written to disk. The
+  /// @a start_byte_offset and @a size specify the byte range of this partial
+  /// segment within the segment file, enabling EXT-X-PART playlist entries.
+  /// @param segment_name is the name of the containing segment file.
+  /// @param start_time is the start time in timescale units.
+  /// @param duration is the duration in timescale units.
+  /// @param is_independent true if this partial segment starts with a key
+  ///        frame (independent), meaning it can be decoded without prior parts.
+  /// @param start_byte_offset byte offset of this partial segment within file.
+  /// @param size size of this partial segment in bytes.
+  virtual void OnNewPartialSegment(const std::string& segment_name,
+                                   int64_t start_time,
+                                   int64_t duration,
+                                   bool is_independent,
+                                   uint64_t start_byte_offset,
+                                   uint64_t size) {
+    UNUSED(segment_name);
+    UNUSED(start_time);
+    UNUSED(duration);
+    UNUSED(is_independent);
+    UNUSED(start_byte_offset);
+    UNUSED(size);
+  }
+
   /// Called when a segment has been muxed and the file has been written.
   /// Note: For some implementations, this is used to signal new subsegments
   /// or chunks. For example, for generating video on demand (VOD) MPD manifest,

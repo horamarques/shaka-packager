@@ -26,6 +26,10 @@ struct Mp4OutputParams {
   /// and mdat atom. Each chunk is uploaded immediately upon creation,
   /// decoupling latency from segment duration.
   bool low_latency_dash_mode = false;
+  /// Enable LL-HLS streaming.
+  /// Each segment consists of many partial segments (chunks), each written
+  /// immediately upon creation and referenced by EXT-X-PART tags.
+  bool low_latency_hls_mode = false;
 };
 
 }  // namespace shaka

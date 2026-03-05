@@ -34,6 +34,7 @@ class HlsEntry {
     kExtDiscontinuity,
     kExtPlacementOpportunity,
     kProgramDateTime,
+    kExtPart,
   };
   virtual ~HlsEntry();
 
@@ -138,6 +139,21 @@ class MediaPlaylist {
                           int64_t duration,
                           uint64_t start_byte_offset,
                           uint64_t size);
+
+  /// Add a partial segment (EXT-X-PART) for LL-HLS. Partial segments must
+  /// be added in order before the containing full segment is added.
+  /// @param file_name is the file name of the segment containing this part.
+  /// @param start_time is in terms of the timescale of the media.
+  /// @param duration is in terms of the timescale of the media.
+  /// @param is_independent true if this part starts with an independent frame.
+  /// @param start_byte_offset byte offset within the segment file.
+  /// @param size size of this partial segment in bytes.
+  virtual void AddPartialSegment(const std::string& file_name,
+                                 int64_t start_time,
+                                 int64_t duration,
+                                 bool is_independent,
+                                 uint64_t start_byte_offset,
+                                 uint64_t size);
 
   /// Set the reference time for EXT-X-PROGRAM-DATE-TIME. This is the wall clock
   /// time for when media timestamp is 0.
@@ -326,6 +342,20 @@ class MediaPlaylist {
     std::string segment_file_name;
   };
   std::list<KeyFrameInfo> key_frames_;
+
+  // For LL-HLS: pending partial segments for the in-progress segment.
+  struct PendingPartInfo {
+    std::string file_name;
+    double duration_seconds;
+    bool is_independent;
+    uint64_t start_byte_offset;
+    uint64_t size;
+  };
+  std::list<PendingPartInfo> pending_parts_;
+  // Next expected byte offset within the in-progress segment (for PRELOAD-HINT)
+  uint64_t next_part_byte_offset_ = 0;
+  // File name of the in-progress segment (for PRELOAD-HINT)
+  std::string current_segment_file_name_;
 
   DISALLOW_COPY_AND_ASSIGN(MediaPlaylist);
 };

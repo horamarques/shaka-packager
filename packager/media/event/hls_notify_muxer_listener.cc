@@ -241,6 +241,23 @@ void HlsNotifyMuxerListener::OnMediaEnd(const MediaRanges& media_ranges,
   event_info_.clear();
 }
 
+void HlsNotifyMuxerListener::OnNewPartialSegment(
+    const std::string& segment_name,
+    int64_t start_time,
+    int64_t duration,
+    bool is_independent,
+    uint64_t start_byte_offset,
+    uint64_t size) {
+  if (!stream_id_) {
+    LOG(WARNING) << "OnNewPartialSegment called before stream was initialized.";
+    return;
+  }
+  const bool result = hls_notifier_->NotifyNewPartialSegment(
+      stream_id_.value(), segment_name, start_time, duration, is_independent,
+      start_byte_offset, size);
+  LOG_IF(WARNING, !result) << "Failed to add new partial segment.";
+}
+
 void HlsNotifyMuxerListener::OnNewSegment(const std::string& file_name,
                                           int64_t start_time,
                                           int64_t duration,

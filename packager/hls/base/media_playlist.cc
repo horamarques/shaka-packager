@@ -111,7 +111,9 @@ std::string CreatePlaylistHeader(
     MediaPlaylist::MediaPlaylistStreamType stream_type,
     uint32_t media_sequence_number,
     int discontinuity_sequence_number,
-    std::optional<double> start_time_offset) {
+    std::optional<double> start_time_offset,
+    bool low_latency_hls_mode,
+    double part_target_duration) {
   const std::string version = GetPackagerVersion();
   std::string version_line;
   if (!version.empty()) {
@@ -120,13 +122,28 @@ std::string CreatePlaylistHeader(
                         GetPackagerProjectUrl().c_str(), version.c_str());
   }
 
-  // 6 is required for EXT-X-MAP without EXT-X-I-FRAMES-ONLY.
+  // LL-HLS requires version 9. Otherwise, 6 is required for EXT-X-MAP without
+  // EXT-X-I-FRAMES-ONLY.
+  const int hls_version = low_latency_hls_mode ? 9 : 6;
   std::string header = absl::StrFormat(
       "#EXTM3U\n"
-      "#EXT-X-VERSION:6\n"
+      "#EXT-X-VERSION:%d\n"
       "%s"
       "#EXT-X-TARGETDURATION:%d\n",
-      version_line.c_str(), target_duration);
+      hls_version, version_line.c_str(), target_duration);
+
+  if (low_latency_hls_mode) {
+    // EXT-X-SERVER-CONTROL: CAN-BLOCK-RELOAD=YES enables blocking playlist
+    // reload (server/CDN must support this). PART-HOLD-BACK is 3x part target
+    // duration per RFC 8216bis.
+    absl::StrAppendFormat(
+        &header,
+        "#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=YES,PART-HOLD-BACK=%.3f\n",
+        part_target_duration * 3.0);
+    // EXT-X-PART-INF announces the target partial segment duration.
+    absl::StrAppendFormat(&header, "#EXT-X-PART-INF:PART-TARGET=%.3f\n",
+                          part_target_duration);
+  }
 
   switch (type) {
     case HlsPlaylistType::kVod:
@@ -257,6 +274,50 @@ DiscontinuityEntry::DiscontinuityEntry()
 std::string DiscontinuityEntry::ToString() {
   return "#EXT-X-DISCONTINUITY";
 }
+
+/// HLS entry for EXT-X-PART (partial segment in LL-HLS).
+class PartialSegmentInfoEntry : public HlsEntry {
+ public:
+  PartialSegmentInfoEntry(const std::string& file_name,
+                          double duration_seconds,
+                          bool is_independent,
+                          uint64_t start_byte_offset,
+                          uint64_t size)
+      : HlsEntry(HlsEntry::EntryType::kExtPart),
+        file_name_(file_name),
+        duration_seconds_(duration_seconds),
+        is_independent_(is_independent),
+        start_byte_offset_(start_byte_offset),
+        size_(size) {}
+
+  std::string ToString() override {
+    // Format: #EXT-X-PART:DURATION=X.XXX,URI="name",BYTERANGE=N@O[,INDEPENDENT=YES]
+    std::string result = absl::StrFormat(
+        "#EXT-X-PART:DURATION=%.3f,URI=\"%s\"", duration_seconds_,
+        file_name_.c_str());
+    // Emit BYTERANGE: size@offset (omit @offset when offset is 0).
+    if (start_byte_offset_ == 0) {
+      absl::StrAppendFormat(&result, ",BYTERANGE=%" PRIu64, size_);
+    } else {
+      absl::StrAppendFormat(&result, ",BYTERANGE=%" PRIu64 "@%" PRIu64, size_,
+                            start_byte_offset_);
+    }
+    if (is_independent_) {
+      result += ",INDEPENDENT=YES";
+    }
+    return result;
+  }
+
+ private:
+  PartialSegmentInfoEntry(const PartialSegmentInfoEntry&) = delete;
+  PartialSegmentInfoEntry& operator=(const PartialSegmentInfoEntry&) = delete;
+
+  const std::string file_name_;
+  const double duration_seconds_;
+  const bool is_independent_;
+  const uint64_t start_byte_offset_;
+  const uint64_t size_;
+};
 
 ProgramDateTimeEntry::ProgramDateTimeEntry(const absl::Time& program_time)
     : HlsEntry(HlsEntry::EntryType::kProgramDateTime),
@@ -466,8 +527,49 @@ void MediaPlaylist::AddSegment(const std::string& file_name,
     key_frames_.clear();
     return;
   }
+
+  // For LL-HLS: flush pending partial segments into the entries list before
+  // adding the full segment's EXTINF. This preserves the ordering:
+  //   EXT-X-PART (part 0)
+  //   EXT-X-PART (part 1)
+  //   ...
+  //   EXTINF
+  if (hls_params_.low_latency_hls_mode && !pending_parts_.empty()) {
+    for (const auto& part : pending_parts_) {
+      // Embed part info as a PartialSegmentInfoEntry in the entries list.
+      entries_.emplace_back(new PartialSegmentInfoEntry(
+          part.file_name, part.duration_seconds, part.is_independent,
+          part.start_byte_offset, part.size));
+    }
+    pending_parts_.clear();
+    current_segment_file_name_.clear();
+    next_part_byte_offset_ = 0;
+  }
+
   return AddSegmentInfoEntry(file_name, start_time, duration, start_byte_offset,
                              size);
+}
+
+void MediaPlaylist::AddPartialSegment(const std::string& file_name,
+                                      int64_t start_time,
+                                      int64_t duration,
+                                      bool is_independent,
+                                      uint64_t start_byte_offset,
+                                      uint64_t size) {
+  if (time_scale_ == 0) {
+    LOG(WARNING) << "Timescale is not set; partial segment duration cannot be "
+                    "calculated.";
+    return;
+  }
+  const double duration_seconds =
+      static_cast<double>(duration) / time_scale_;
+
+  // Track state for PRELOAD-HINT generation.
+  current_segment_file_name_ = file_name;
+  next_part_byte_offset_ = start_byte_offset + size;
+
+  pending_parts_.push_back(
+      {file_name, duration_seconds, is_independent, start_byte_offset, size});
 }
 
 void MediaPlaylist::SetReferenceTime(const absl::Time& reference_time) {
@@ -518,10 +620,37 @@ bool MediaPlaylist::WriteToFile(const std::filesystem::path& file_path) {
   std::string content = CreatePlaylistHeader(
       media_info_, target_duration_, hls_params_.playlist_type, stream_type_,
       media_sequence_number_, discontinuity_sequence_number_,
-      hls_params_.start_time_offset);
+      hls_params_.start_time_offset, hls_params_.low_latency_hls_mode,
+      hls_params_.part_target_duration);
 
   for (const auto& entry : entries_)
     absl::StrAppendFormat(&content, "%s\n", entry->ToString().c_str());
+
+  // For LL-HLS: append pending partial segments for the in-progress segment.
+  if (hls_params_.low_latency_hls_mode && !pending_parts_.empty()) {
+    for (const auto& part : pending_parts_) {
+      std::string part_str = absl::StrFormat(
+          "#EXT-X-PART:DURATION=%.3f,URI=\"%s\"", part.duration_seconds,
+          part.file_name.c_str());
+      if (part.start_byte_offset == 0) {
+        absl::StrAppendFormat(&part_str, ",BYTERANGE=%" PRIu64, part.size);
+      } else {
+        absl::StrAppendFormat(&part_str, ",BYTERANGE=%" PRIu64 "@%" PRIu64,
+                              part.size, part.start_byte_offset);
+      }
+      if (part.is_independent) {
+        part_str += ",INDEPENDENT=YES";
+      }
+      absl::StrAppendFormat(&content, "%s\n", part_str.c_str());
+    }
+    // EXT-X-PRELOAD-HINT: tell clients where to expect the next partial segment.
+    if (!current_segment_file_name_.empty()) {
+      std::string hint_str = absl::StrFormat(
+          "#EXT-X-PRELOAD-HINT:TYPE=PART,URI=\"%s\",BYTERANGE-START=%" PRIu64,
+          current_segment_file_name_.c_str(), next_part_byte_offset_);
+      absl::StrAppendFormat(&content, "%s\n", hint_str.c_str());
+    }
+  }
 
   if (hls_params_.playlist_type == HlsPlaylistType::kVod) {
     content += "#EXT-X-ENDLIST\n";

@@ -121,7 +121,8 @@ Status ChunkingHandler::OnMediaSample(
   // On each media sample, which is the basis for a chunk,
   // we must increment the current_subsegment_index_
   // in order to hit FinalizeSegment() within Segmenter.
-  if (!started_new_segment && chunking_params_.low_latency_dash_mode) {
+  if (!started_new_segment && (chunking_params_.low_latency_dash_mode ||
+                               chunking_params_.low_latency_hls_mode)) {
     current_subsegment_index_++;
 
     RETURN_IF_ERROR(EndSubsegmentIfStarted());
@@ -132,7 +133,8 @@ Status ChunkingHandler::OnMediaSample(
   // This fragment size can be set with the 'fragment_duration' cmd arg.
   // This is NOT for the LL-DASH case.
   if (!started_new_segment && IsSubsegmentEnabled() &&
-      !chunking_params_.low_latency_dash_mode) {
+      !chunking_params_.low_latency_dash_mode &&
+      !chunking_params_.low_latency_hls_mode) {
     const bool can_start_new_subsegment =
         sample->is_key_frame() || !chunking_params_.subsegment_sap_aligned;
     if (can_start_new_subsegment) {
@@ -173,7 +175,8 @@ Status ChunkingHandler::EndSegmentIfStarted() {
   segment_info->duration = max_segment_time_ - segment_start_time_.value();
   segment_info->segment_number = segment_number_++;
 
-  if (chunking_params_.low_latency_dash_mode) {
+  if (chunking_params_.low_latency_dash_mode ||
+      chunking_params_.low_latency_hls_mode) {
     segment_info->is_chunk = true;
     segment_info->is_final_chunk_in_seg = true;
   }
@@ -190,7 +193,8 @@ Status ChunkingHandler::EndSubsegmentIfStarted() const {
   subsegment_info->duration =
       max_segment_time_ - subsegment_start_time_.value();
   subsegment_info->is_subsegment = true;
-  if (chunking_params_.low_latency_dash_mode)
+  if (chunking_params_.low_latency_dash_mode ||
+      chunking_params_.low_latency_hls_mode)
     subsegment_info->is_chunk = true;
   return DispatchSegmentInfo(kStreamIndex, std::move(subsegment_info));
 }

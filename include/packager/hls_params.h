@@ -94,6 +94,15 @@ struct HlsParams {
   bool per_playlist_target_duration = false;
   /// CEA-608 / CEA-708 captions.
   std::vector<CeaCaption> closed_captions;
+  /// Enable Low Latency HLS (LL-HLS) streaming as defined in RFC 8216bis.
+  /// Generates EXT-X-PART tags for partial segments, EXT-X-PART-INF,
+  /// EXT-X-SERVER-CONTROL, and EXT-X-PRELOAD-HINT tags, enabling lower latency
+  /// playback when combined with a CDN/server that supports blocking playlist
+  /// reloads.
+  bool low_latency_hls_mode = false;
+  /// Target partial segment (part) duration in seconds for LL-HLS.
+  /// This is the value for EXT-X-PART-INF:PART-TARGET. Defaults to 0.5s.
+  double part_target_duration = 0.5;
 };
 
 }  // namespace shaka

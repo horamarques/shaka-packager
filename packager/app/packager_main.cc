@@ -390,6 +390,8 @@ std::optional<PackagingParams> GetPackagingParams() {
       absl::GetFlag(FLAGS_fragment_duration);
   chunking_params.low_latency_dash_mode =
       absl::GetFlag(FLAGS_low_latency_dash_mode);
+  chunking_params.low_latency_hls_mode =
+      absl::GetFlag(FLAGS_low_latency_hls_mode);
   chunking_params.segment_sap_aligned =
       absl::GetFlag(FLAGS_segment_sap_aligned);
   chunking_params.subsegment_sap_aligned =
@@ -510,6 +512,7 @@ std::optional<PackagingParams> GetPackagingParams() {
   mp4_params.include_pssh_in_stream =
       absl::GetFlag(FLAGS_mp4_include_pssh_in_stream);
   mp4_params.low_latency_dash_mode = absl::GetFlag(FLAGS_low_latency_dash_mode);
+  mp4_params.low_latency_hls_mode = absl::GetFlag(FLAGS_low_latency_hls_mode);
 
   packaging_params.transport_stream_timestamp_offset_ms =
       absl::GetFlag(FLAGS_transport_stream_timestamp_offset_ms);
@@ -580,6 +583,8 @@ std::optional<PackagingParams> GetPackagingParams() {
   hls_params.start_time_offset = absl::GetFlag(FLAGS_hls_start_time_offset);
   hls_params.create_session_keys = absl::GetFlag(FLAGS_create_session_keys);
   hls_params.add_program_date_time = absl::GetFlag(FLAGS_add_program_date_time);
+  hls_params.low_latency_hls_mode = absl::GetFlag(FLAGS_low_latency_hls_mode);
+  hls_params.part_target_duration = absl::GetFlag(FLAGS_hls_part_target_duration);
   hls_params.per_playlist_target_duration =
       absl::GetFlag(FLAGS_per_playlist_target_duration);
 
