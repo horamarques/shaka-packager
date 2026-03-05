@@ -19,10 +19,15 @@ namespace mp2t {
 
 namespace {
 
+const int kRegistrationDescriptor = 0x05;
 const int kISO639LanguageDescriptor = 0x0A;
 const int kMaximumBitrateDescriptor = 0x0E;
 const int kTeletextDescriptor = 0x56;
 const int kSubtitlingDescriptor = 0x59;
+
+// CUEI format_identifier for SCTE-35 registration descriptor.
+// See SCTE-35 section 8.1 and ISO 13818-1 section 2.6.8.
+const uint32_t kCueiFormatIdentifier = 0x43554549;  // "CUEI"
 
 }  // namespace
 
@@ -79,9 +84,39 @@ bool TsSectionPmt::ParsePsiSection(BitReader* bit_reader) {
   RCHECK(bit_reader->ReadBits(12, &program_info_length));
   RCHECK(program_info_length < 1024);
 
-  // Read the program info descriptor.
+  // Parse the program info descriptors.
   // Defined in section 2.6 of ISO-13818.
-  RCHECK(bit_reader->SkipBits(8 * program_info_length));
+  // We look for the registration descriptor (tag 0x05) with format_identifier
+  // "CUEI" (0x43554549) which indicates SCTE-35 presence in this program.
+  bool has_scte35_registration = false;
+  {
+    int remaining = program_info_length;
+    while (remaining >= 2) {
+      uint8_t desc_tag;
+      uint8_t desc_length;
+      RCHECK(bit_reader->ReadBits(8, &desc_tag));
+      RCHECK(bit_reader->ReadBits(8, &desc_length));
+      remaining -= 2;
+      RCHECK(remaining >= static_cast<int>(desc_length));
+
+      if (desc_tag == kRegistrationDescriptor && desc_length >= 4) {
+        uint32_t format_identifier;
+        RCHECK(bit_reader->ReadBits(32, &format_identifier));
+        if (format_identifier == kCueiFormatIdentifier) {
+          has_scte35_registration = true;
+          DVLOG(1) << "Found CUEI registration descriptor in PMT program info";
+        }
+        RCHECK(bit_reader->SkipBits(8 * (desc_length - 4)));
+      } else {
+        RCHECK(bit_reader->SkipBits(8 * desc_length));
+      }
+      remaining -= desc_length;
+    }
+    // Skip any trailing bytes (shouldn't happen in well-formed PMT).
+    if (remaining > 0) {
+      RCHECK(bit_reader->SkipBits(8 * remaining));
+    }
+  }
 
   // Read the ES description table.
   // The end of the PID map if 4 bytes away from the end of the section
@@ -166,6 +201,22 @@ bool TsSectionPmt::ParsePsiSection(BitReader* bit_reader) {
 
         es_info_length -= 3;
         descriptor_length -= 3;
+      } else if (descriptor_tag == kRegistrationDescriptor &&
+                 descriptor_length >= 4) {
+        // See ISO 13818-1 section 2.6.8.
+        // Check for CUEI format_identifier indicating SCTE-35.
+        RCHECK(es_info_length >= 4);
+
+        uint32_t format_identifier;
+        RCHECK(bit_reader->ReadBits(32, &format_identifier));
+        if (format_identifier == kCueiFormatIdentifier) {
+          pid_info.back().stream_type = TsStreamType::kScte35;
+          DVLOG(1) << "Found CUEI registration descriptor on ES PID "
+                   << pid_es;
+        }
+
+        es_info_length -= 4;
+        descriptor_length -= 4;
       }
 
       RCHECK(bit_reader->SkipBits(8 * descriptor_length));
@@ -178,6 +229,18 @@ bool TsSectionPmt::ParsePsiSection(BitReader* bit_reader) {
   // Read the CRC.
   int crc32;
   RCHECK(bit_reader->ReadBits(32, &crc32));
+
+  // If the program-level CUEI registration descriptor was found, any ES with
+  // stream_type 0x86 (kDtsHd) is actually SCTE-35, not DTS-HD.
+  if (has_scte35_registration) {
+    for (auto& info : pid_info) {
+      if (info.stream_type == TsStreamType::kDtsHd) {
+        info.stream_type = TsStreamType::kScte35;
+        DVLOG(1) << "Reassigning PID " << info.pid_es
+                 << " from DTS-HD to SCTE-35 (program-level CUEI)";
+      }
+    }
+  }
 
   // Once the PMT has been proved to be correct, register the PIDs.
   for (auto& info : pid_info) {

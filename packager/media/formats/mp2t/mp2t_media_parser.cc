@@ -40,6 +40,7 @@ class PidState {
     kPidAudioPes,
     kPidVideoPes,
     kPidTextPes,
+    kPidScte35,
   };
 
   PidState(int pid,
@@ -335,6 +336,14 @@ void Mp2tMediaParser::RegisterPes(int pmt_pid,
                                            descriptor, descriptor_length));
       pid_type = PidState::kPidTextPes;
       break;
+
+    case TsStreamType::kScte35:
+      // SCTE-35 detected via CUEI registration descriptor in PMT.
+      // SCTE-35 uses PSI section format, not PES.
+      // The section parser will be added in a follow-up change (Issue A).
+      LOG(INFO) << "Detected SCTE-35 stream on PID " << pes_pid
+                << " (parser not yet implemented)";
+      return;
 
     default: {
       auto type = static_cast<int>(stream_type);
