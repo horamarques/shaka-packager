@@ -79,6 +79,19 @@ void CombinedMuxerListener::OnNewSegment(const std::string& file_name,
   }
 }
 
+void CombinedMuxerListener::OnNewPartialSegment(
+    const std::string& segment_name,
+    int64_t start_time,
+    int64_t duration,
+    bool is_independent,
+    uint64_t start_byte_offset,
+    uint64_t size) {
+  for (auto& listener : muxer_listeners_) {
+    listener->OnNewPartialSegment(segment_name, start_time, duration,
+                                  is_independent, start_byte_offset, size);
+  }
+}
+
 void CombinedMuxerListener::OnCompletedSegment(int64_t duration,
                                                uint64_t segment_file_size) {
   for (auto& listener : muxer_listeners_) {

@@ -551,7 +551,7 @@ void MediaPlaylist::AddSegment(const std::string& file_name,
 }
 
 void MediaPlaylist::AddPartialSegment(const std::string& file_name,
-                                      int64_t start_time,
+                                      int64_t /* start_time */,
                                       int64_t duration,
                                       bool is_independent,
                                       uint64_t start_byte_offset,
@@ -908,6 +908,13 @@ void MediaPlaylist::SlideWindow() {
       ext_x_keys.push_back(std::move(*last));
     } else if (entry_type == HlsEntry::EntryType::kExtDiscontinuity) {
       ++discontinuity_sequence_number_;
+    } else if (entry_type == HlsEntry::EntryType::kExtPart) {
+      // LL-HLS partial segment entries are removed together with their
+      // containing full segment (the next kExtInf). Just skip them here.
+    } else if (entry_type == HlsEntry::EntryType::kProgramDateTime) {
+      // Program date time entries are informational; skip during sliding.
+    } else if (entry_type == HlsEntry::EntryType::kExtPlacementOpportunity) {
+      // Placement opportunity entries are informational; skip during sliding.
     } else {
       DCHECK_EQ(static_cast<int>(entry_type),
                 static_cast<int>(HlsEntry::EntryType::kExtInf));

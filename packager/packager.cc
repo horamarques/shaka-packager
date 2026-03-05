@@ -376,16 +376,30 @@ Status ValidateParams(const PackagingParams& packaging_params,
   }
 
   if (packaging_params.chunking_params.low_latency_hls_mode &&
-      packaging_params.chunking_params.subsegment_duration_in_seconds) {
+      packaging_params.hls_params.master_playlist_output.empty()) {
     return Status(error::INVALID_ARGUMENT,
-                  "--fragment_duration cannot be set "
+                  "--hls_master_playlist_output must be set "
                   "if --low_latency_hls_mode is enabled.");
   }
 
   if (packaging_params.chunking_params.low_latency_hls_mode &&
-      packaging_params.hls_params.master_playlist_output.empty()) {
+      packaging_params.hls_params.playlist_type == HlsPlaylistType::kVod) {
     return Status(error::INVALID_ARGUMENT,
-                  "--hls_master_playlist_output must be set "
+                  "--hls_playlist_type must be LIVE or EVENT "
+                  "if --low_latency_hls_mode is enabled.");
+  }
+
+  if (packaging_params.chunking_params.low_latency_hls_mode &&
+      packaging_params.hls_params.part_target_duration <= 0) {
+    return Status(error::INVALID_ARGUMENT,
+                  "--hls_part_target_duration must be greater than 0 "
+                  "if --low_latency_hls_mode is enabled.");
+  }
+
+  if (packaging_params.chunking_params.low_latency_hls_mode &&
+      on_demand_dash_profile) {
+    return Status(error::INVALID_ARGUMENT,
+                  "segment_template is required for all streams "
                   "if --low_latency_hls_mode is enabled.");
   }
 
