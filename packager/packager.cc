@@ -376,13 +376,6 @@ Status ValidateParams(const PackagingParams& packaging_params,
   }
 
   if (packaging_params.chunking_params.low_latency_hls_mode &&
-      packaging_params.chunking_params.subsegment_duration_in_seconds) {
-    return Status(error::INVALID_ARGUMENT,
-                  "--fragment_duration cannot be set "
-                  "if --low_latency_hls_mode is enabled.");
-  }
-
-  if (packaging_params.chunking_params.low_latency_hls_mode &&
       packaging_params.hls_params.master_playlist_output.empty()) {
     return Status(error::INVALID_ARGUMENT,
                   "--hls_master_playlist_output must be set "

@@ -117,24 +117,21 @@ Status ChunkingHandler::OnMediaSample(
     }
   }
 
-  // This handles the LL-DASH case.
-  // On each media sample, which is the basis for a chunk,
-  // we must increment the current_subsegment_index_
-  // in order to hit FinalizeSegment() within Segmenter.
-  if (!started_new_segment && (chunking_params_.low_latency_dash_mode ||
-                               chunking_params_.low_latency_hls_mode)) {
+  // Per-frame chunking for LL-DASH (always) and LL-HLS (when no
+  // subsegment_duration is configured, i.e. per-frame partials).
+  if (!started_new_segment &&
+      (chunking_params_.low_latency_dash_mode ||
+       (chunking_params_.low_latency_hls_mode && !IsSubsegmentEnabled()))) {
     current_subsegment_index_++;
 
     RETURN_IF_ERROR(EndSubsegmentIfStarted());
     subsegment_start_time_ = timestamp;
   }
 
-  // Here, a subsegment refers to a fragment that is within a segment.
-  // This fragment size can be set with the 'fragment_duration' cmd arg.
-  // This is NOT for the LL-DASH case.
+  // Time-based subsegment/fragment handling using subsegment_duration.
+  // Active for non-LL modes and LL-HLS (to control partial segment duration).
   if (!started_new_segment && IsSubsegmentEnabled() &&
-      !chunking_params_.low_latency_dash_mode &&
-      !chunking_params_.low_latency_hls_mode) {
+      !chunking_params_.low_latency_dash_mode) {
     const bool can_start_new_subsegment =
         sample->is_key_frame() || !chunking_params_.subsegment_sap_aligned;
     if (can_start_new_subsegment) {
