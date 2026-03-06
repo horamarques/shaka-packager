@@ -23,6 +23,7 @@ namespace shaka {
 namespace media {
 
 class MediaSample;
+struct Scte35Event;
 
 namespace mp2t {
 
@@ -50,6 +51,17 @@ class Mp2tMediaParser : public MediaParser {
   [[nodiscard]] bool Flush() override;
   [[nodiscard]] bool Parse(const uint8_t* buf, int size) override;
   /// @}
+
+  /// Callback type for SCTE-35 events parsed from the TS stream.
+  typedef std::function<bool(uint32_t track_id,
+                             std::shared_ptr<Scte35Event>)>
+      NewScte35EventCB;
+
+  /// Set an optional callback to receive parsed SCTE-35 events.
+  /// If not set, SCTE-35 events are parsed but not forwarded.
+  void set_scte35_event_cb(const NewScte35EventCB& cb) {
+    new_scte35_event_cb_ = cb;
+  }
 
  private:
   // Callback invoked to register a Program Map Table.
@@ -83,6 +95,11 @@ class Mp2tMediaParser : public MediaParser {
   void OnEmitTextSample(uint32_t pes_pid,
                         std::shared_ptr<TextSample> new_sample);
 
+  // Callback invoked by the SCTE-35 section parser
+  // to emit a parsed SCTE-35 event.
+  void OnEmitScte35Event(uint32_t pes_pid,
+                         std::shared_ptr<Scte35Event> event);
+
   // Invoke the initialization callback if needed.
   bool FinishInitializationIfNeeded();
 
@@ -98,6 +115,7 @@ class Mp2tMediaParser : public MediaParser {
   InitCB init_cb_;
   NewMediaSampleCB new_media_sample_cb_;
   NewTextSampleCB new_text_sample_cb_;
+  NewScte35EventCB new_scte35_event_cb_;
 
   bool sbr_in_mimetype_;
 

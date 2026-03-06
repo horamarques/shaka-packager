@@ -10,6 +10,7 @@
 #include <absl/log/check.h>
 
 #include <packager/macros/logging.h>
+#include <packager/media/base/media_handler.h>
 #include <packager/media/base/media_sample.h>
 #include <packager/media/base/stream_info.h>
 #include <packager/media/base/text_sample.h>
@@ -26,6 +27,7 @@
 #include <packager/media/formats/mp2t/ts_section_pat.h>
 #include <packager/media/formats/mp2t/ts_section_pes.h>
 #include <packager/media/formats/mp2t/ts_section_pmt.h>
+#include <packager/media/formats/mp2t/ts_section_scte35.h>
 #include <packager/media/formats/mp2t/ts_stream_type.h>
 
 namespace shaka {
@@ -79,6 +81,7 @@ class PidState {
 
   std::deque<std::shared_ptr<MediaSample>> media_sample_queue_;
   std::deque<std::shared_ptr<TextSample>> text_sample_queue_;
+  std::deque<std::shared_ptr<Scte35Event>> scte35_event_queue_;
 
   bool enable_;
   int continuity_counter_;
@@ -337,13 +340,21 @@ void Mp2tMediaParser::RegisterPes(int pmt_pid,
       pid_type = PidState::kPidTextPes;
       break;
 
-    case TsStreamType::kScte35:
+    case TsStreamType::kScte35: {
       // SCTE-35 detected via CUEI registration descriptor in PMT.
-      // SCTE-35 uses PSI section format, not PES.
-      // The section parser will be added in a follow-up change (Issue A).
-      LOG(INFO) << "Detected SCTE-35 stream on PID " << pes_pid
-                << " (parser not yet implemented)";
+      // SCTE-35 uses PSI section format (not PES), so we register a PSI
+      // section parser directly (like PAT/PMT), not via TsSectionPes.
+      DVLOG(1) << "Registering SCTE-35 section parser for PID " << pes_pid;
+      auto on_scte35_event = std::bind(&Mp2tMediaParser::OnEmitScte35Event,
+                                       this, pes_pid, std::placeholders::_1);
+      std::unique_ptr<TsSection> scte35_section_parser(
+          new TsSectionScte35(on_scte35_event));
+      std::unique_ptr<PidState> scte35_pid_state(new PidState(
+          pes_pid, PidState::kPidScte35, std::move(scte35_section_parser)));
+      scte35_pid_state->Enable();
+      pids_.emplace(pes_pid, std::move(scte35_pid_state));
       return;
+    }
 
     default: {
       auto type = static_cast<int>(stream_type);
@@ -475,6 +486,26 @@ void Mp2tMediaParser::OnEmitTextSample(uint32_t pes_pid,
   pid_state->second->text_sample_queue_.push_back(std::move(new_sample));
 }
 
+void Mp2tMediaParser::OnEmitScte35Event(
+    uint32_t pes_pid,
+    std::shared_ptr<Scte35Event> event) {
+  DCHECK(event);
+  DVLOG(1) << "OnEmitScte35Event:"
+           << " pid=" << pes_pid
+           << " id=" << event->id
+           << " type=" << event->type
+           << " time=" << event->start_time_in_seconds << "s";
+
+  // Add the event to the appropriate PID event queue.
+  auto pid_state = pids_.find(pes_pid);
+  if (pid_state == pids_.end()) {
+    LOG(ERROR) << "PID State for SCTE-35 event not found (pid = " << pes_pid
+               << ").";
+    return;
+  }
+  pid_state->second->scte35_event_queue_.push_back(std::move(event));
+}
+
 bool Mp2tMediaParser::EmitRemainingSamples() {
   DVLOG(LOG_LEVEL_ES) << "Mp2tMediaParser::EmitRemainingBuffers";
 
@@ -493,6 +524,14 @@ bool Mp2tMediaParser::EmitRemainingSamples() {
       RCHECK(new_text_sample_cb_(pid_pair.first, sample));
     }
     pid_pair.second->text_sample_queue_.clear();
+
+    // Emit SCTE-35 events via the optional callback.
+    if (new_scte35_event_cb_) {
+      for (auto event : pid_pair.second->scte35_event_queue_) {
+        RCHECK(new_scte35_event_cb_(pid_pair.first, event));
+      }
+    }
+    pid_pair.second->scte35_event_queue_.clear();
   }
 
   return true;
