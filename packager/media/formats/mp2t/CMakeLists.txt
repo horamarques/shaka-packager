@@ -51,6 +51,8 @@ add_library(mp2t STATIC
   ts_section_pmt.h
   ts_section_psi.cc
   ts_section_psi.h
+  ts_section_scte35.cc
+  ts_section_scte35.h
   ts_segmenter.cc
   ts_segmenter.h
   ts_stream_type.h
@@ -78,6 +80,7 @@ mpeg1_header_unittest.cc
 pes_packet_generator_unittest.cc
 program_map_table_writer_unittest.cc
 ts_section_pmt_unittest.cc
+ts_section_scte35_unittest.cc
 ts_segmenter_unittest.cc
 ts_writer_unittest.cc
   )
