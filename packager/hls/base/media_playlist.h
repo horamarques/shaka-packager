@@ -191,6 +191,19 @@ class MediaPlaylist {
   /// https://support.google.com/dfp_premium/answer/7295798?hl=en.
   virtual void AddPlacementOpportunity();
 
+  /// Register sibling playlists for EXT-X-RENDITION-REPORT generation.
+  /// Called by MasterPlaylist before the first write.
+  /// @param siblings are the other media playlists in the same master playlist.
+  void SetSiblingPlaylists(
+      const std::vector<const MediaPlaylist*>& siblings);
+
+  /// @return the media sequence number of the last segment in this playlist.
+  uint32_t GetLastMediaSequenceNumber() const;
+
+  /// @return the index of the last partial segment (0-based), or -1 if there
+  ///         are no partial segments.
+  int GetLastPartIndex() const;
+
   /// Write the playlist to |file_path|.
   /// This does not close the file.
   /// If target duration is not set explicitly, this will try to find the target
@@ -206,8 +219,8 @@ class MediaPlaylist {
   /// we will write to the file
   /// @return true on success, false otherwise.
   virtual bool WriteToFile(const std::filesystem::path& file_path,
-                           bool event_to_vod_on_end_of_stream,
-                           bool end_stream);
+                           bool event_to_vod_on_end_of_stream = false,
+                           bool end_stream = false);
 
   /// If bitrate is specified in MediaInfo then it will use that value.
   /// Otherwise, returns the max bitrate.
@@ -362,6 +375,9 @@ class MediaPlaylist {
   uint64_t next_part_byte_offset_ = 0;
   // File name of the in-progress segment (for PRELOAD-HINT)
   std::string current_segment_file_name_;
+
+  // Sibling playlists for EXT-X-RENDITION-REPORT (set by MasterPlaylist).
+  std::vector<const MediaPlaylist*> sibling_playlists_;
 
   DISALLOW_COPY_AND_ASSIGN(MediaPlaylist);
 };

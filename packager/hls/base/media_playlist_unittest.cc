@@ -1497,5 +1497,246 @@ TEST_F(LowLatencyHlsMediaPlaylistTest, SlideWindowWithParts) {
   // No DCHECK crash means kExtPart entries were handled correctly.
 }
 
+TEST_F(LowLatencyHlsMediaPlaylistTest, ServerControlIncludesCanSkipUntil) {
+  ASSERT_TRUE(media_playlist_->SetMediaInfo(valid_video_media_info_));
+
+  media_playlist_->AddSegment("file1.ts", 0, 2 * kTimeScale, kZeroByteOffset,
+                              kMBytes);
+
+  const char kMemoryFilePath[] = "memory://media.m3u8";
+  EXPECT_TRUE(media_playlist_->WriteToFile(kMemoryFilePath));
+
+  std::string actual;
+  ASSERT_TRUE(File::ReadFileToString(kMemoryFilePath, &actual));
+
+  EXPECT_NE(std::string::npos,
+            actual.find("CAN-SKIP-UNTIL=12.000"));
+}
+
+TEST_F(LowLatencyHlsMediaPlaylistTest, SkipOldSegments) {
+  mutable_hls_params()->time_shift_buffer_depth = 100;
+
+  ASSERT_TRUE(media_playlist_->SetMediaInfo(valid_video_media_info_));
+
+  for (int i = 0; i < 10; i++) {
+    media_playlist_->AddSegment(
+        absl::StrFormat("file%d.ts", i + 1),
+        i * 2 * kTimeScale, 2 * kTimeScale, kZeroByteOffset, kMBytes);
+  }
+
+  const char kMemoryFilePath[] = "memory://media.m3u8";
+  EXPECT_TRUE(media_playlist_->WriteToFile(kMemoryFilePath));
+
+  std::string actual;
+  ASSERT_TRUE(File::ReadFileToString(kMemoryFilePath, &actual));
+
+  EXPECT_NE(std::string::npos,
+            actual.find("#EXT-X-SKIP:SKIPPED-SEGMENTS=4"));
+  EXPECT_EQ(std::string::npos, actual.find("file1.ts"));
+  EXPECT_EQ(std::string::npos, actual.find("file2.ts"));
+  EXPECT_EQ(std::string::npos, actual.find("file3.ts"));
+  EXPECT_EQ(std::string::npos, actual.find("file4.ts"));
+  EXPECT_NE(std::string::npos, actual.find("file5.ts"));
+  EXPECT_NE(std::string::npos, actual.find("file10.ts"));
+}
+
+TEST_F(LowLatencyHlsMediaPlaylistTest, NoSkipWhenNotEnoughSegments) {
+  mutable_hls_params()->time_shift_buffer_depth = 100;
+
+  ASSERT_TRUE(media_playlist_->SetMediaInfo(valid_video_media_info_));
+
+  media_playlist_->AddSegment("file1.ts", 0, 2 * kTimeScale, kZeroByteOffset,
+                              kMBytes);
+  media_playlist_->AddSegment("file2.ts", 2 * kTimeScale, 2 * kTimeScale,
+                              kZeroByteOffset, kMBytes);
+
+  const char kMemoryFilePath[] = "memory://media.m3u8";
+  EXPECT_TRUE(media_playlist_->WriteToFile(kMemoryFilePath));
+
+  std::string actual;
+  ASSERT_TRUE(File::ReadFileToString(kMemoryFilePath, &actual));
+
+  EXPECT_EQ(std::string::npos, actual.find("#EXT-X-SKIP"));
+  EXPECT_NE(std::string::npos, actual.find("file1.ts"));
+  EXPECT_NE(std::string::npos, actual.find("file2.ts"));
+}
+
+TEST_F(LowLatencyHlsMediaPlaylistTest, PreserveKeysInSkippedRange) {
+  mutable_hls_params()->time_shift_buffer_depth = 100;
+
+  ASSERT_TRUE(media_playlist_->SetMediaInfo(valid_video_media_info_));
+
+  media_playlist_->AddEncryptionInfo(
+      MediaPlaylist::EncryptionMethod::kSampleAesCenc,
+      "skd://key1", "key_id_1", "0x12345678", "com.apple.streamingkeydelivery",
+      "1");
+
+  for (int i = 0; i < 10; i++) {
+    media_playlist_->AddSegment(
+        absl::StrFormat("file%d.ts", i + 1),
+        i * 2 * kTimeScale, 2 * kTimeScale, kZeroByteOffset, kMBytes);
+  }
+
+  const char kMemoryFilePath[] = "memory://media.m3u8";
+  EXPECT_TRUE(media_playlist_->WriteToFile(kMemoryFilePath));
+
+  std::string actual;
+  ASSERT_TRUE(File::ReadFileToString(kMemoryFilePath, &actual));
+
+  EXPECT_NE(std::string::npos, actual.find("#EXT-X-SKIP:SKIPPED-SEGMENTS=4"));
+  EXPECT_NE(std::string::npos, actual.find("#EXT-X-KEY:"));
+}
+
+TEST_F(LowLatencyHlsMediaPlaylistTest, PreserveDiscontinuityInSkippedRange) {
+  mutable_hls_params()->time_shift_buffer_depth = 100;
+
+  ASSERT_TRUE(media_playlist_->SetMediaInfo(valid_video_media_info_));
+
+  for (int i = 0; i < 3; i++) {
+    media_playlist_->AddSegment(
+        absl::StrFormat("file%d.ts", i + 1),
+        i * 2 * kTimeScale, 2 * kTimeScale, kZeroByteOffset, kMBytes);
+  }
+  media_playlist_->AddPlacementOpportunity();
+  for (int i = 3; i < 10; i++) {
+    media_playlist_->AddSegment(
+        absl::StrFormat("file%d.ts", i + 1),
+        i * 2 * kTimeScale, 2 * kTimeScale, kZeroByteOffset, kMBytes);
+  }
+
+  const char kMemoryFilePath[] = "memory://media.m3u8";
+  EXPECT_TRUE(media_playlist_->WriteToFile(kMemoryFilePath));
+
+  std::string actual;
+  ASSERT_TRUE(File::ReadFileToString(kMemoryFilePath, &actual));
+
+  EXPECT_NE(std::string::npos, actual.find("#EXT-X-SKIP:SKIPPED-SEGMENTS=4"));
+  EXPECT_EQ(std::string::npos, actual.find("file1.ts"));
+}
+
+TEST_F(LowLatencyHlsMediaPlaylistTest, RenditionReportForSiblings) {
+  ASSERT_TRUE(media_playlist_->SetMediaInfo(valid_video_media_info_));
+
+  MediaPlaylist sibling(hls_params_, "sibling_audio.m3u8", "audio",
+                        "audio_group");
+  MediaInfo audio_info;
+  audio_info.set_reference_time_scale(kTimeScale);
+  audio_info.mutable_audio_info()->set_codec("mp4a.40.2");
+  audio_info.mutable_audio_info()->set_time_scale(kTimeScale);
+  audio_info.mutable_audio_info()->set_num_channels(2);
+  audio_info.set_segment_template_url("audio$Number$.m4s");
+  ASSERT_TRUE(sibling.SetMediaInfo(audio_info));
+
+  media_playlist_->AddSegment("video1.ts", 0, 2 * kTimeScale,
+                              kZeroByteOffset, kMBytes);
+  media_playlist_->AddSegment("video2.ts", 2 * kTimeScale, 2 * kTimeScale,
+                              kZeroByteOffset, kMBytes);
+
+  sibling.AddSegment("audio1.m4s", 0, 2 * kTimeScale,
+                     kZeroByteOffset, kMBytes);
+  sibling.AddSegment("audio2.m4s", 2 * kTimeScale, 2 * kTimeScale,
+                     kZeroByteOffset, kMBytes);
+
+  std::vector<const MediaPlaylist*> siblings = {&sibling};
+  media_playlist_->SetSiblingPlaylists(siblings);
+
+  const char kMemoryFilePath[] = "memory://media.m3u8";
+  EXPECT_TRUE(media_playlist_->WriteToFile(kMemoryFilePath));
+
+  std::string actual;
+  ASSERT_TRUE(File::ReadFileToString(kMemoryFilePath, &actual));
+
+  EXPECT_NE(std::string::npos,
+            actual.find("#EXT-X-RENDITION-REPORT:URI=\"sibling_audio.m3u8\","
+                        "LAST-MSN=1"));
+}
+
+TEST_F(LowLatencyHlsMediaPlaylistTest, NoSelfReport) {
+  ASSERT_TRUE(media_playlist_->SetMediaInfo(valid_video_media_info_));
+
+  media_playlist_->AddSegment("video1.ts", 0, 2 * kTimeScale,
+                              kZeroByteOffset, kMBytes);
+
+  std::vector<const MediaPlaylist*> siblings = {media_playlist_.get()};
+  media_playlist_->SetSiblingPlaylists(siblings);
+
+  const char kMemoryFilePath[] = "memory://media.m3u8";
+  EXPECT_TRUE(media_playlist_->WriteToFile(kMemoryFilePath));
+
+  std::string actual;
+  ASSERT_TRUE(File::ReadFileToString(kMemoryFilePath, &actual));
+
+  EXPECT_NE(std::string::npos, actual.find("#EXT-X-RENDITION-REPORT:"));
+}
+
+TEST_F(LowLatencyHlsMediaPlaylistTest, RenditionReportOmitsPartWhenNoParts) {
+  ASSERT_TRUE(media_playlist_->SetMediaInfo(valid_video_media_info_));
+
+  MediaPlaylist sibling(hls_params_, "sibling.m3u8", "audio", "audio_group");
+  MediaInfo audio_info;
+  audio_info.set_reference_time_scale(kTimeScale);
+  audio_info.mutable_audio_info()->set_codec("mp4a.40.2");
+  audio_info.mutable_audio_info()->set_time_scale(kTimeScale);
+  audio_info.mutable_audio_info()->set_num_channels(2);
+  audio_info.set_segment_template_url("audio$Number$.m4s");
+  ASSERT_TRUE(sibling.SetMediaInfo(audio_info));
+
+  sibling.AddSegment("audio1.m4s", 0, 2 * kTimeScale, kZeroByteOffset,
+                     kMBytes);
+
+  media_playlist_->AddSegment("video1.ts", 0, 2 * kTimeScale,
+                              kZeroByteOffset, kMBytes);
+
+  std::vector<const MediaPlaylist*> siblings = {&sibling};
+  media_playlist_->SetSiblingPlaylists(siblings);
+
+  const char kMemoryFilePath[] = "memory://media.m3u8";
+  EXPECT_TRUE(media_playlist_->WriteToFile(kMemoryFilePath));
+
+  std::string actual;
+  ASSERT_TRUE(File::ReadFileToString(kMemoryFilePath, &actual));
+
+  EXPECT_NE(std::string::npos,
+            actual.find("#EXT-X-RENDITION-REPORT:URI=\"sibling.m3u8\","
+                        "LAST-MSN=0"));
+  EXPECT_EQ(std::string::npos, actual.find("LAST-PART="));
+}
+
+TEST_F(LowLatencyHlsMediaPlaylistTest, RenditionReportWithPendingParts) {
+  ASSERT_TRUE(media_playlist_->SetMediaInfo(valid_video_media_info_));
+
+  MediaPlaylist sibling(hls_params_, "sibling.m3u8", "audio", "audio_group");
+  MediaInfo audio_info;
+  audio_info.set_reference_time_scale(kTimeScale);
+  audio_info.mutable_audio_info()->set_codec("mp4a.40.2");
+  audio_info.mutable_audio_info()->set_time_scale(kTimeScale);
+  audio_info.mutable_audio_info()->set_num_channels(2);
+  audio_info.set_segment_template_url("audio$Number$.m4s");
+  ASSERT_TRUE(sibling.SetMediaInfo(audio_info));
+
+  sibling.AddSegment("audio1.m4s", 0, 2 * kTimeScale, kZeroByteOffset,
+                     kMBytes);
+  sibling.AddPartialSegment("audio2.m4s", 2 * kTimeScale, kTimeScale / 2,
+                            true, 0, 50000);
+  sibling.AddPartialSegment("audio2.m4s", 2 * kTimeScale + kTimeScale / 2,
+                            kTimeScale / 2, false, 50000, 45000);
+
+  media_playlist_->AddSegment("video1.ts", 0, 2 * kTimeScale,
+                              kZeroByteOffset, kMBytes);
+
+  std::vector<const MediaPlaylist*> siblings = {&sibling};
+  media_playlist_->SetSiblingPlaylists(siblings);
+
+  const char kMemoryFilePath[] = "memory://media.m3u8";
+  EXPECT_TRUE(media_playlist_->WriteToFile(kMemoryFilePath));
+
+  std::string actual;
+  ASSERT_TRUE(File::ReadFileToString(kMemoryFilePath, &actual));
+
+  EXPECT_NE(std::string::npos,
+            actual.find("#EXT-X-RENDITION-REPORT:URI=\"sibling.m3u8\","
+                        "LAST-MSN=0,LAST-PART=1"));
+}
+
 }  // namespace hls
 }  // namespace shaka

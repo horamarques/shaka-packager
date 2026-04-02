@@ -605,6 +605,18 @@ bool MasterPlaylist::WriteMasterPlaylist(
     const std::string& output_dir,
     const std::list<MediaPlaylist*>& playlists) {
   std::string content = "#EXTM3U\n";
+
+  // Register sibling playlists for EXT-X-RENDITION-REPORT (LL-HLS).
+  // Each playlist needs to know about all other playlists to emit reports.
+  for (auto* playlist : playlists) {
+    std::vector<const MediaPlaylist*> siblings;
+    for (const auto* other : playlists) {
+      if (other != playlist)
+        siblings.push_back(other);
+    }
+    playlist->SetSiblingPlaylists(siblings);
+  }
+
   AppendVersionString(&content);
 
   if (is_independent_segments_) {

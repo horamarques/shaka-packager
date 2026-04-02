@@ -388,7 +388,8 @@ bool SimpleHlsNotifier::NotifyNewPartialSegment(uint32_t stream_id,
   // clients can start downloading partial segments with low latency.
   if (hls_params().playlist_type == HlsPlaylistType::kLive ||
       hls_params().playlist_type == HlsPlaylistType::kEvent) {
-    if (!WriteMediaPlaylist(master_playlist_dir_, media_playlist.get()))
+    if (!WriteMediaPlaylist(master_playlist_dir_, media_playlist.get(),
+                            false, false))
       return false;
     if (!master_playlist_->WriteMasterPlaylist(
             hls_params().base_url, master_playlist_dir_, media_playlists_)) {

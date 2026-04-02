@@ -138,8 +138,11 @@ std::string CreatePlaylistHeader(
     // duration per RFC 8216bis.
     absl::StrAppendFormat(
         &header,
-        "#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=YES,PART-HOLD-BACK=%.3f\n",
-        part_target_duration * 3.0);
+        "#EXT-X-SERVER-CONTROL:CAN-BLOCK-RELOAD=YES,"
+        "PART-HOLD-BACK=%.3f,"
+        "CAN-SKIP-UNTIL=%.3f\n",
+        part_target_duration * 3.0,
+        static_cast<double>(target_duration) * 6.0);
     // EXT-X-PART-INF announces the target partial segment duration.
     absl::StrAppendFormat(&header, "#EXT-X-PART-INF:PART-TARGET=%.3f\n",
                           part_target_duration);
@@ -610,6 +613,38 @@ void MediaPlaylist::AddPlacementOpportunity() {
   entries_.emplace_back(new PlacementOpportunityEntry());
 }
 
+void MediaPlaylist::SetSiblingPlaylists(
+    const std::vector<const MediaPlaylist*>& siblings) {
+  sibling_playlists_ = siblings;
+}
+
+uint32_t MediaPlaylist::GetLastMediaSequenceNumber() const {
+  uint32_t segment_count = 0;
+  for (const auto& entry : entries_) {
+    if (entry->type() == HlsEntry::EntryType::kExtInf)
+      segment_count++;
+  }
+  if (segment_count == 0)
+    return media_sequence_number_;
+  return media_sequence_number_ + segment_count - 1;
+}
+
+int MediaPlaylist::GetLastPartIndex() const {
+  if (!pending_parts_.empty())
+    return static_cast<int>(pending_parts_.size()) - 1;
+  // Check for kExtPart entries associated with the last full segment.
+  int part_count = 0;
+  for (auto it = entries_.rbegin(); it != entries_.rend(); ++it) {
+    if ((*it)->type() == HlsEntry::EntryType::kExtInf)
+      break;  // Stop at the last full segment boundary.
+    if ((*it)->type() == HlsEntry::EntryType::kExtPart)
+      part_count++;
+  }
+  if (part_count > 0)
+    return part_count - 1;
+  return -1;
+}
+
 bool MediaPlaylist::WriteToFile(const std::filesystem::path& file_path,
                                 bool event_to_vod_on_end_of_stream,
                                 bool end_stream) {
@@ -629,8 +664,76 @@ bool MediaPlaylist::WriteToFile(const std::filesystem::path& file_path,
       hls_params_.start_time_offset, hls_params_.low_latency_hls_mode,
       hls_params_.part_target_duration);
 
-  for (const auto& entry : entries_)
+  // EXT-X-SKIP: In LL-HLS live mode, skip rendering old segments that fall
+  // outside the CAN-SKIP-UNTIL window. This is a rendering-only optimization;
+  // entries_ is not mutated.
+  int segments_to_skip = 0;
+  if (hls_params_.low_latency_hls_mode &&
+      playlist_type == HlsPlaylistType::kLive && target_duration_ > 0) {
+    const double can_skip_until = target_duration_ * 6.0;
+    // Calculate total segment duration to find the skip boundary.
+    double total_segment_duration = 0;
+    for (const auto& entry : entries_) {
+      if (entry->type() == HlsEntry::EntryType::kExtInf) {
+        total_segment_duration +=
+            reinterpret_cast<SegmentInfoEntry*>(entry.get())
+                ->duration_seconds();
+      }
+    }
+    // Segments whose cumulative duration from the front fits within
+    // (total - can_skip_until) are skippable.
+    double skip_boundary = total_segment_duration - can_skip_until;
+    if (skip_boundary > 0) {
+      double accumulated = 0;
+      for (const auto& entry : entries_) {
+        if (entry->type() == HlsEntry::EntryType::kExtInf) {
+          accumulated +=
+              reinterpret_cast<SegmentInfoEntry*>(entry.get())
+                  ->duration_seconds();
+          if (accumulated <= skip_boundary) {
+            segments_to_skip++;
+          } else {
+            break;
+          }
+        }
+      }
+    }
+  }
+
+  if (segments_to_skip > 0) {
+    absl::StrAppendFormat(&content, "#EXT-X-SKIP:SKIPPED-SEGMENTS=%d\n",
+                          segments_to_skip);
+  }
+
+  int skipped_segment_count = 0;
+  for (const auto& entry : entries_) {
+    if (segments_to_skip > 0) {
+      if (entry->type() == HlsEntry::EntryType::kExtInf) {
+        skipped_segment_count++;
+        if (skipped_segment_count <= segments_to_skip) {
+          continue;  // Skip this segment
+        }
+      } else if (entry->type() == HlsEntry::EntryType::kExtPart) {
+        // Skip partial segments associated with skipped full segments.
+        if (skipped_segment_count < segments_to_skip) {
+          continue;
+        }
+      } else if (entry->type() == HlsEntry::EntryType::kExtKey ||
+                 entry->type() == HlsEntry::EntryType::kExtDiscontinuity) {
+        // Per spec: EXT-X-KEY and EXT-X-DISCONTINUITY MUST still be emitted
+        // even within the skipped range.
+        absl::StrAppendFormat(&content, "%s\n", entry->ToString().c_str());
+        continue;
+      } else {
+        // Other entry types (ProgramDateTime, PlacementOpportunity) in the
+        // skipped range can be skipped.
+        if (skipped_segment_count < segments_to_skip) {
+          continue;
+        }
+      }
+    }
     absl::StrAppendFormat(&content, "%s\n", entry->ToString().c_str());
+  }
 
   // For LL-HLS: append pending partial segments for the in-progress segment.
   if (hls_params_.low_latency_hls_mode && !pending_parts_.empty()) {
@@ -655,6 +758,23 @@ bool MediaPlaylist::WriteToFile(const std::filesystem::path& file_path,
           "#EXT-X-PRELOAD-HINT:TYPE=PART,URI=\"%s\",BYTERANGE-START=%" PRIu64,
           current_segment_file_name_.c_str(), next_part_byte_offset_);
       absl::StrAppendFormat(&content, "%s\n", hint_str.c_str());
+    }
+  }
+
+  // EXT-X-RENDITION-REPORT: In LL-HLS mode, append rendition reports for
+  // sibling playlists so clients can switch renditions without polling all.
+  if (hls_params_.low_latency_hls_mode &&
+      playlist_type != HlsPlaylistType::kVod && !sibling_playlists_.empty()) {
+    for (const auto* sibling : sibling_playlists_) {
+      std::string report = absl::StrFormat(
+          "#EXT-X-RENDITION-REPORT:URI=\"%s\",LAST-MSN=%u",
+          sibling->file_name().c_str(),
+          sibling->GetLastMediaSequenceNumber());
+      int last_part = sibling->GetLastPartIndex();
+      if (last_part >= 0) {
+        absl::StrAppendFormat(&report, ",LAST-PART=%d", last_part);
+      }
+      absl::StrAppendFormat(&content, "%s\n", report.c_str());
     }
   }
 
