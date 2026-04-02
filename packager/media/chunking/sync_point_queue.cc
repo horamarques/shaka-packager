@@ -93,6 +93,23 @@ bool SyncPointQueue::HasMore(double hint_in_seconds) const {
   return hint_in_seconds < std::numeric_limits<double>::max();
 }
 
+void SyncPointQueue::AddDynamicCuePoint(double time_in_seconds,
+                                        CueEventType type,
+                                        const std::string& cue_data) {
+  absl::MutexLock lock(mutex_);
+  if (promoted_.find(time_in_seconds) != promoted_.end())
+    return;
+  if (unpromoted_.find(time_in_seconds) != unpromoted_.end())
+    return;
+
+  auto event = std::make_shared<CueEvent>();
+  event->time_in_seconds = time_in_seconds;
+  event->type = type;
+  event->cue_data = cue_data;
+  unpromoted_[time_in_seconds] = std::move(event);
+  sync_condition_.SignalAll();
+}
+
 std::shared_ptr<const CueEvent> SyncPointQueue::PromoteAtNoLocking(
     double time_in_seconds) {
   mutex_.AssertHeld();

@@ -6,15 +6,15 @@
 
 #include <map>
 #include <memory>
+#include <string>
 
 #include <absl/synchronization/mutex.h>
 
 #include <packager/ad_cue_generator_params.h>
+#include <packager/media/base/media_handler.h>
 
 namespace shaka {
 namespace media {
-
-struct CueEvent;
 
 /// A synchronized queue for cue points.
 class SyncPointQueue {
@@ -51,6 +51,11 @@ class SyncPointQueue {
   ///         be a hint returned from |GetHint|. Using any other value results
   ///         in undefined behavior.
   bool HasMore(double hint_in_seconds) const;
+
+  /// Dynamically add a cue point (e.g., from SCTE-35 input). Thread-safe.
+  void AddDynamicCuePoint(double time_in_seconds,
+                          CueEventType type,
+                          const std::string& cue_data);
 
  private:
   SyncPointQueue(const SyncPointQueue&) = delete;
