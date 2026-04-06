@@ -30,6 +30,7 @@
 #include <packager/media/base/muxer_util.h>
 #include <packager/media/chunking/chunking_handler.h>
 #include <packager/media/chunking/cue_alignment_handler.h>
+#include <packager/media/chunking/scte35_to_cue_event_handler.h>
 #include <packager/media/chunking/segment_coordinator.h>
 #include <packager/media/chunking/text_chunker.h>
 #include <packager/media/crypto/encryption_handler.h>
@@ -661,6 +662,22 @@ Status CreateAudioVideoJobs(
     segment_coordinators[stream.input] = std::make_shared<SegmentCoordinator>();
   }
 
+  // Set up SCTE-35 handlers for TS demuxers.
+  std::map<std::string, std::shared_ptr<media::Scte35ToCueEventHandler>>
+      scte35_handlers;
+  if (sync_points) {
+    for (auto& [input, demuxer] : sources) {
+      auto scte35_handler =
+          std::make_shared<media::Scte35ToCueEventHandler>(sync_points);
+      demuxer->SetScte35EventCallback(
+          [handler = scte35_handler](
+              std::shared_ptr<const media::Scte35Event> event) {
+            handler->OnScte35Event(std::move(event));
+          });
+      scte35_handlers[input] = scte35_handler;
+    }
+  }
+
   for (auto& source : sources) {
     job_manager->Add("RemuxJob", source.second);
   }
@@ -972,8 +989,23 @@ Status Packager::Initialize(
     internal->hls_notifier.reset(new hls::SimpleHlsNotifier(hls_params));
   }
 
+  // Create SyncPointQueue when ad_cues provided or when TS input
+  // might contain SCTE-35 events.
+  bool has_ts_input = false;
+  for (const auto& descriptor : stream_descriptors) {
+    const auto& input = descriptor.input;
+    if (input.size() >= 3 &&
+        (input.rfind(".ts") == input.size() - 3 ||
+         input.rfind(".m2t") == input.size() - 4 ||
+         input.rfind(".m2ts") == input.size() - 5)) {
+      has_ts_input = true;
+      break;
+    }
+  }
+
   std::unique_ptr<SyncPointQueue> sync_points;
-  if (!packaging_params.ad_cue_generator_params.cue_points.empty()) {
+  if (!packaging_params.ad_cue_generator_params.cue_points.empty() ||
+      has_ts_input) {
     sync_points.reset(
         new SyncPointQueue(packaging_params.ad_cue_generator_params));
   }

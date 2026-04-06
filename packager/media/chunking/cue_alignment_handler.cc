@@ -187,6 +187,13 @@ Status CueAlignmentHandler::OnVideoSample(std::unique_ptr<StreamData> sample) {
   const double sample_time = TimeInSeconds(*stream.info, *sample);
   const bool is_key_frame = sample->media_sample->is_key_frame();
 
+  if (is_key_frame) {
+    // Re-check hint from queue to detect dynamically-added cues (SCTE-35).
+    double fresh_hint = sync_points_->GetHint(sample_time - 0.001);
+    if (fresh_hint < hint_)
+      hint_ = fresh_hint;
+  }
+
   if (is_key_frame && sample_time >= hint_) {
     auto next_sync = sync_points_->PromoteAt(sample_time);
 

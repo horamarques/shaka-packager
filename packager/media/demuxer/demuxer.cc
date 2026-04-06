@@ -231,6 +231,19 @@ Status Demuxer::InitializeParser() {
                 std::placeholders::_2),
       key_source_.get());
 
+  // Set up SCTE-35 callback if available (MPEG-TS only).
+  if (scte35_event_callback_) {
+    auto* mp2t_parser = dynamic_cast<mp2t::Mp2tMediaParser*>(parser_.get());
+    if (mp2t_parser) {
+      mp2t_parser->set_scte35_event_cb(
+          [this](uint32_t /* track_id */,
+                 std::shared_ptr<Scte35Event> event) -> bool {
+            scte35_event_callback_(std::move(event));
+            return true;
+          });
+    }
+  }
+
   // Handle trailing 'moov'.
   if (container_name_ == CONTAINER_MOV &&
       File::IsLocalRegularFile(file_name_.c_str())) {

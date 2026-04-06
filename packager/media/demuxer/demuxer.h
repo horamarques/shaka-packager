@@ -9,6 +9,7 @@
 
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <memory>
 #include <vector>
 
@@ -22,6 +23,8 @@ namespace shaka {
 class File;
 
 namespace media {
+
+struct Scte35Event;
 
 class Decryptor;
 class KeySource;
@@ -78,6 +81,12 @@ class Demuxer : public OriginHandler {
 
   void set_input_format(std::string input_format) {
     input_format_ = input_format;
+  }
+
+  /// Set callback for SCTE-35 events parsed from MPEG-TS input.
+  void SetScte35EventCallback(
+      std::function<void(std::shared_ptr<const Scte35Event>)> callback) {
+    scte35_event_callback_ = std::move(callback);
   }
 
  protected:
@@ -155,6 +164,7 @@ class Demuxer : public OriginHandler {
   Status init_event_status_;
   // Explicitly defined input format, for avoiding autodetection.
   std::string input_format_;
+  std::function<void(std::shared_ptr<const Scte35Event>)> scte35_event_callback_;
 };
 
 }  // namespace media
