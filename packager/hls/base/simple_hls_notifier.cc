@@ -479,7 +479,11 @@ bool SimpleHlsNotifier::NotifyCueEvent(uint32_t stream_id, int64_t timestamp,
     return false;
   }
   auto& media_playlist = stream_iterator->second->media_playlist;
-  media_playlist->AddPlacementOpportunity();
+  if (!cue_data.empty()) {
+    media_playlist->AddDateRange(timestamp, cue_data, true);
+  } else {
+    media_playlist->AddPlacementOpportunity();
+  }
   return true;
 }
 

@@ -338,6 +338,37 @@ std::string ProgramDateTimeEntry::ToString() {
       cs.month(), cs.day(), cs.hour(), cs.minute(), cs.second(), ms);
 }
 
+class DateRangeEntry : public HlsEntry {
+ public:
+  DateRangeEntry(const std::string& id,
+                 const std::string& start_date,
+                 const std::string& cue_data,
+                 bool is_cue_out)
+      : HlsEntry(HlsEntry::EntryType::kExtDateRange),
+        id_(id),
+        start_date_(start_date),
+        cue_data_(cue_data),
+        is_cue_out_(is_cue_out) {}
+
+  std::string ToString() override {
+    std::string hex_data;
+    for (unsigned char c : cue_data_) {
+      absl::StrAppendFormat(&hex_data, "%02X", c);
+    }
+    return absl::StrFormat(
+        "#EXT-X-DATERANGE:ID=\"%s\",START-DATE=\"%s\",%s=0x%s",
+        id_, start_date_,
+        is_cue_out_ ? "SCTE35-OUT" : "SCTE35-IN",
+        hex_data);
+  }
+
+ private:
+  const std::string id_;
+  const std::string start_date_;
+  const std::string cue_data_;
+  const bool is_cue_out_;
+};
+
 class PlacementOpportunityEntry : public HlsEntry {
  public:
   PlacementOpportunityEntry();
@@ -611,6 +642,33 @@ void MediaPlaylist::AddEncryptionInfo(MediaPlaylist::EncryptionMethod method,
 
 void MediaPlaylist::AddPlacementOpportunity() {
   entries_.emplace_back(new PlacementOpportunityEntry());
+}
+
+void MediaPlaylist::AddDateRange(int64_t timestamp,
+                                 const std::string& cue_data,
+                                 bool is_cue_out) {
+  static int date_range_counter = 0;
+  std::string id = absl::StrFormat("splice-%d", ++date_range_counter);
+
+  std::string start_date;
+  if (reference_time_ != absl::InfinitePast() && time_scale_ > 0) {
+    absl::Time event_time = reference_time_ +
+        absl::Seconds(static_cast<double>(timestamp) / time_scale_);
+    absl::CivilSecond cs =
+        absl::ToCivilSecond(event_time, absl::UTCTimeZone());
+    int64_t total_ms = absl::ToUnixMillis(event_time);
+    int ms = static_cast<int>(total_ms % 1000);
+    if (ms < 0) ms += 1000;
+    start_date = absl::StrFormat(
+        "%04d-%02d-%02dT%02d:%02d:%02d.%03dZ",
+        cs.year(), cs.month(), cs.day(), cs.hour(), cs.minute(), cs.second(),
+        ms);
+  } else {
+    start_date = "1970-01-01T00:00:00.000Z";
+  }
+
+  entries_.emplace_back(
+      new DateRangeEntry(id, start_date, cue_data, is_cue_out));
 }
 
 void MediaPlaylist::SetSiblingPlaylists(

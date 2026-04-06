@@ -35,6 +35,7 @@ class HlsEntry {
     kExtPlacementOpportunity,
     kProgramDateTime,
     kExtPart,
+    kExtDateRange,
   };
   virtual ~HlsEntry();
 
@@ -190,6 +191,13 @@ class MediaPlaylist {
   /// Add #EXT-X-PLACEMENT-OPPORTUNITY for mid-roll ads. See
   /// https://support.google.com/dfp_premium/answer/7295798?hl=en.
   virtual void AddPlacementOpportunity();
+
+  /// Add an EXT-X-DATERANGE entry for SCTE-35 cue signaling.
+  /// @param timestamp is in timescale of the media.
+  /// @param cue_data is the raw SCTE-35 section data.
+  /// @param is_cue_out true for SCTE35-OUT, false for SCTE35-IN.
+  virtual void AddDateRange(int64_t timestamp, const std::string& cue_data,
+                            bool is_cue_out);
 
   /// Register sibling playlists for EXT-X-RENDITION-REPORT generation.
   /// Called by MasterPlaylist before the first write.
