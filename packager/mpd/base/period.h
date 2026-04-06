@@ -13,6 +13,8 @@
 #include <list>
 #include <map>
 #include <optional>
+#include <string>
+#include <vector>
 
 #include <packager/mpd/base/adaptation_set.h>
 #include <packager/mpd/base/media_info.pb.h>
@@ -62,6 +64,11 @@ class Period {
   void set_duration_seconds(double duration_seconds) {
     duration_seconds_ = duration_seconds;
   }
+
+  /// Add a SCTE-35 event for EventStream generation.
+  void AddEventStreamEvent(double presentation_time_seconds,
+                           double duration_seconds,
+                           const std::string& cue_data);
 
   /// @return trickplay_cache.
   const std::map<std::string, std::list<AdaptationSet*>>& trickplay_cache()
@@ -134,6 +141,13 @@ class Period {
   // grouping key. These AdaptationSets still have not found reference
   // AdaptationSet.
   std::map<std::string, std::list<AdaptationSet*>> trickplay_cache_;
+
+  struct EventStreamEvent {
+    double presentation_time_seconds;
+    double duration_seconds;
+    std::string cue_data;
+  };
+  std::vector<EventStreamEvent> event_stream_events_;
 };
 
 }  // namespace shaka

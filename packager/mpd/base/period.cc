@@ -8,6 +8,7 @@
 
 #include <absl/log/check.h>
 #include <absl/log/log.h>
+#include <absl/strings/escaping.h>
 #include <absl/strings/match.h>
 
 #include <packager/mpd/base/adaptation_set.h>
@@ -168,6 +169,52 @@ std::optional<xml::XmlNode> Period::GetXml(bool output_period_duration) {
       adaptation_set->set_id(idx++);
   }
 
+  // Add EventStream for SCTE-35 events.
+  if (!event_stream_events_.empty()) {
+    xml::XmlNode event_stream("EventStream");
+    if (!event_stream.SetStringAttribute(
+            "schemeIdUri", "urn:scte:scte35:2013:xml") ||
+        !event_stream.SetIntegerAttribute("timescale", 1)) {
+      return std::nullopt;
+    }
+
+    for (const auto& evt : event_stream_events_) {
+      xml::XmlNode event_node("Event");
+      int64_t presentation_time =
+          static_cast<int64_t>(evt.presentation_time_seconds -
+                               start_time_in_seconds_);
+      if (presentation_time < 0) presentation_time = 0;
+      if (!event_node.SetIntegerAttribute("presentationTime",
+                                          presentation_time)) {
+        return std::nullopt;
+      }
+      if (evt.duration_seconds > 0) {
+        if (!event_node.SetIntegerAttribute(
+                "duration", static_cast<int64_t>(evt.duration_seconds))) {
+          return std::nullopt;
+        }
+      }
+      std::string base64_data;
+      absl::Base64Escape(evt.cue_data, &base64_data);
+
+      xml::XmlNode signal_node("Signal");
+      if (!signal_node.SetStringAttribute(
+              "xmlns", "http://www.scte.org/schemas/35/2016")) {
+        return std::nullopt;
+      }
+      xml::XmlNode binary_node("Binary");
+      binary_node.SetContent(base64_data);
+      if (!signal_node.AddChild(std::move(binary_node)) ||
+          !event_node.AddChild(std::move(signal_node)) ||
+          !event_stream.AddChild(std::move(event_node))) {
+        return std::nullopt;
+      }
+    }
+
+    if (!period.AddChild(std::move(event_stream)))
+      return std::nullopt;
+  }
+
   for (const auto& adaptation_set : adaptation_sets_) {
     auto child = adaptation_set->GetXml();
     if (!child || !period.AddChild(std::move(*child)))
@@ -186,6 +233,13 @@ std::optional<xml::XmlNode> Period::GetXml(bool output_period_duration) {
     }
   }
   return period;
+}
+
+void Period::AddEventStreamEvent(double presentation_time_seconds,
+                                 double duration_seconds,
+                                 const std::string& cue_data) {
+  event_stream_events_.push_back(
+      {presentation_time_seconds, duration_seconds, cue_data});
 }
 
 const std::list<AdaptationSet*> Period::GetAdaptationSets() const {

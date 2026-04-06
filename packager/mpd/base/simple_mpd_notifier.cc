@@ -153,6 +153,9 @@ bool SimpleMpdNotifier::NotifyCueEvent(uint32_t container_id,
 
   Period* period = mpd_builder_->GetOrCreatePeriod(period_start_time_seconds);
   DCHECK(period);
+  if (!cue_data.empty()) {
+    period->AddEventStreamEvent(period_start_time_seconds, 0.0, cue_data);
+  }
   AdaptationSet* adaptation_set = period->GetOrCreateAdaptationSet(
       media_info, content_protection_in_adaptation_set_);
   DCHECK(adaptation_set);
