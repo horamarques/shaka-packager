@@ -108,7 +108,8 @@ class HlsNotifier {
   /// @param stream_id is the value set by NotifyNewStream().
   /// @param timestamp is the timestamp of the CueEvent.
   /// @return true on success, false otherwise.
-  virtual bool NotifyCueEvent(uint32_t stream_id, int64_t timestamp) = 0;
+  virtual bool NotifyCueEvent(uint32_t stream_id, int64_t timestamp,
+                              const std::string& cue_data = "") = 0;
 
   /// @param stream_id is the value set by NotifyNewStream().
   /// @param key_id is the key ID for the stream.

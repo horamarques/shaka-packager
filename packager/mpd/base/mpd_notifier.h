@@ -120,7 +120,8 @@ class MpdNotifier {
   ///        NotifyNewContainer().
   /// @param timestamp is the timestamp of the CueEvent.
   /// @return true on success, false otherwise.
-  virtual bool NotifyCueEvent(uint32_t container_id, int64_t timestamp) = 0;
+  virtual bool NotifyCueEvent(uint32_t container_id, int64_t timestamp,
+                              const std::string& cue_data = "") = 0;
 
   /// Notifiers MpdBuilder that there is a new PSSH for the container.
   /// This may be called whenever the key has to change, e.g. key rotation.

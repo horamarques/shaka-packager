@@ -422,7 +422,7 @@ TEST_F(MpdNotifyMuxerListenerTest, VodOnNewSegment) {
       .WillOnce(Return(true));
   EXPECT_CALL(*notifier_, NotifyNewSegment(_, kStartTime1, kDuration1,
                                            kSegmentFileSize1, kSegmentNumber1));
-  EXPECT_CALL(*notifier_, NotifyCueEvent(_, kStartTime2));
+  EXPECT_CALL(*notifier_, NotifyCueEvent(_, kStartTime2, _));
   EXPECT_CALL(*notifier_, NotifyNewSegment(_, kStartTime2, kDuration2,
                                            kSegmentFileSize2, kSegmentNumber2));
   EXPECT_CALL(*notifier_, Flush());
@@ -466,7 +466,7 @@ TEST_F(MpdNotifyMuxerListenerTest, VodOnNewSegmentSegmentList) {
       .WillOnce(Return(true));
   EXPECT_CALL(*notifier_, NotifyNewSegment(_, kStartTime1, kDuration1,
                                            kSegmentFileSize1, kSegmentNumber1));
-  EXPECT_CALL(*notifier_, NotifyCueEvent(_, kStartTime2));
+  EXPECT_CALL(*notifier_, NotifyCueEvent(_, kStartTime2, _));
   EXPECT_CALL(*notifier_, NotifyNewSegment(_, kStartTime2, kDuration2,
                                            kSegmentFileSize2, kSegmentNumber2));
   EXPECT_CALL(*notifier_, Flush());
@@ -520,7 +520,7 @@ TEST_F(MpdNotifyMuxerListenerTest, VodMultipleFiles) {
       .WillOnce(Return(true));
   EXPECT_CALL(*notifier_, NotifyNewSegment(_, kStartTime1, kDuration1,
                                            kSegmentFileSize1, kSegmentNumber1));
-  EXPECT_CALL(*notifier_, NotifyCueEvent(_, kStartTime2));
+  EXPECT_CALL(*notifier_, NotifyCueEvent(_, kStartTime2, _));
   EXPECT_CALL(*notifier_, Flush());
   FireOnMediaEndWithParams(GetDefaultOnMediaEndParams());
 
@@ -585,7 +585,7 @@ TEST_F(MpdNotifyMuxerListenerTest, VodMultipleFilesSegmentList) {
       .WillOnce(Return(true));
   EXPECT_CALL(*notifier_, NotifyNewSegment(_, kStartTime1, kDuration1,
                                            kSegmentFileSize1, kSegmentNumber1));
-  EXPECT_CALL(*notifier_, NotifyCueEvent(_, kStartTime2));
+  EXPECT_CALL(*notifier_, NotifyCueEvent(_, kStartTime2, _));
   EXPECT_CALL(*notifier_, Flush());
   FireOnMediaEndWithParams(GetDefaultOnMediaEndParams());
 
@@ -649,7 +649,7 @@ TEST_F(MpdNotifyMuxerListenerTest, LowLatencyDash) {
   EXPECT_CALL(*notifier_, NotifySegmentDuration(_)).WillOnce(Return(true));
   EXPECT_CALL(*notifier_, NotifyNewSegment(_, kStartTime1, kDuration,
                                            kSegmentSize1, kSegmentNumber1));
-  EXPECT_CALL(*notifier_, NotifyCueEvent(_, kStartTime2));
+  EXPECT_CALL(*notifier_, NotifyCueEvent(_, kStartTime2, _));
   EXPECT_CALL(*notifier_, NotifyNewSegment(_, kStartTime2, kDuration,
                                            kSegmentSize2, kSegmentNumber2));
   EXPECT_CALL(*notifier_, Flush()).Times(2);
@@ -732,7 +732,7 @@ TEST_P(MpdNotifyMuxerListenerTest, LiveNoKeyRotation) {
   // Flush should only be called once in OnMediaEnd.
   if (GetParam() == MpdType::kDynamic)
     EXPECT_CALL(*notifier_, Flush());
-  EXPECT_CALL(*notifier_, NotifyCueEvent(_, kStartTime2));
+  EXPECT_CALL(*notifier_, NotifyCueEvent(_, kStartTime2, _));
   EXPECT_CALL(*notifier_, NotifyNewSegment(_, kStartTime2, kDuration2,
                                            kSegmentFileSize2, kSegmentNumber2));
   if (GetParam() == MpdType::kDynamic)

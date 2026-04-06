@@ -228,7 +228,8 @@ void HlsNotifyMuxerListener::OnMediaEnd(const MediaRanges& media_ranges,
           break;
         case EventInfoType::kCue:
           hls_notifier_->NotifyCueEvent(stream_id_.value(),
-                                        event_info.cue_event_info.timestamp);
+                                        event_info.cue_event_info.timestamp,
+                                        event_info.cue_data);
           break;
       }
     }
@@ -301,14 +302,14 @@ void HlsNotifyMuxerListener::OnKeyFrame(int64_t timestamp,
 
 void HlsNotifyMuxerListener::OnCueEvent(int64_t timestamp,
                                         const std::string& cue_data) {
-  UNUSED(cue_data);
   if (!media_info_->has_segment_template()) {
     EventInfo event_info;
     event_info.type = EventInfoType::kCue;
     event_info.cue_event_info = {timestamp};
+    event_info.cue_data = cue_data;
     event_info_.push_back(event_info);
   } else {
-    hls_notifier_->NotifyCueEvent(stream_id_.value(), timestamp);
+    hls_notifier_->NotifyCueEvent(stream_id_.value(), timestamp, cue_data);
   }
 }
 

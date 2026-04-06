@@ -470,7 +470,8 @@ bool SimpleHlsNotifier::NotifyKeyFrame(uint32_t stream_id,
   return true;
 }
 
-bool SimpleHlsNotifier::NotifyCueEvent(uint32_t stream_id, int64_t timestamp) {
+bool SimpleHlsNotifier::NotifyCueEvent(uint32_t stream_id, int64_t timestamp,
+                                       const std::string& cue_data) {
   absl::MutexLock lock(lock_);
   auto stream_iterator = stream_map_.find(stream_id);
   if (stream_iterator == stream_map_.end()) {

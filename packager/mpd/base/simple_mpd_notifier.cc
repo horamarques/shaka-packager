@@ -135,7 +135,8 @@ bool SimpleMpdNotifier::NotifyCompletedSegment(uint32_t container_id,
 }
 
 bool SimpleMpdNotifier::NotifyCueEvent(uint32_t container_id,
-                                       int64_t timestamp) {
+                                       int64_t timestamp,
+                                       const std::string& cue_data) {
   absl::MutexLock lock(lock_);
   auto it = representation_map_.find(container_id);
   if (it == representation_map_.end()) {

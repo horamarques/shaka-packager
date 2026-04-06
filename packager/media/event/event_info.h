@@ -10,6 +10,7 @@
 #define PACKAGER_MEDIA_EVENT_EVENT_INFO_H_
 
 #include <cstdint>
+#include <string>
 
 namespace shaka {
 namespace media {
@@ -44,11 +45,10 @@ enum class EventInfoType {
 // This stores data for lazy event callback for VOD.
 struct EventInfo {
   EventInfoType type;
-  union {
-    SegmentEventInfo segment_info;
-    KeyFrameEvent key_frame;
-    CueEventInfo cue_event_info;
-  };
+  SegmentEventInfo segment_info;
+  KeyFrameEvent key_frame;
+  CueEventInfo cue_event_info;
+  std::string cue_data;  // SCTE-35 raw data, only used when type == kCue
 };
 
 }  // namespace media

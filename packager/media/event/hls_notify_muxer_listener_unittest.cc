@@ -53,7 +53,9 @@ class MockHlsNotifier : public hls::HlsNotifier {
                     int64_t timestamp,
                     uint64_t start_byte_offset,
                     uint64_t size));
-  MOCK_METHOD2(NotifyCueEvent, bool(uint32_t stream_id, int64_t timestamp));
+  MOCK_METHOD3(NotifyCueEvent,
+               bool(uint32_t stream_id, int64_t timestamp,
+                    const std::string& cue_data));
   MOCK_METHOD5(
       NotifyEncryptionUpdate,
       bool(uint32_t stream_id,
@@ -347,7 +349,7 @@ TEST_F(HlsNotifyMuxerListenerTest, OnNewSegmentAndCueEvent) {
   listener_.OnMediaStart(muxer_options, *video_stream_info, 90000,
                          MuxerListener::kContainerMpeg2ts);
 
-  EXPECT_CALL(mock_notifier_, NotifyCueEvent(_, kCueStartTime));
+  EXPECT_CALL(mock_notifier_, NotifyCueEvent(_, kCueStartTime, _));
   EXPECT_CALL(
       mock_notifier_,
       NotifyNewSegment(_, StrEq("new_segment_name10.ts"), kSegmentStartTime,
@@ -374,7 +376,7 @@ TEST_F(HlsNotifyMuxerListenerTest, NoSegmentTemplateOnMediaEnd) {
   listener_.OnNewSegment("filename.mp4", kSegmentStartTime, kSegmentDuration,
                          kSegmentSize, kAnySegmentNumber);
 
-  EXPECT_CALL(mock_notifier_, NotifyCueEvent(_, kCueStartTime));
+  EXPECT_CALL(mock_notifier_, NotifyCueEvent(_, kCueStartTime, _));
   EXPECT_CALL(
       mock_notifier_,
       NotifyNewSegment(_, StrEq("filename.mp4"), kSegmentStartTime,
@@ -411,7 +413,7 @@ TEST_F(HlsNotifyMuxerListenerTest, NoSegmentTemplateOnMediaEndTwice) {
       .WillOnce(Return(true));
   EXPECT_CALL(mock_notifier_, NotifyNewSegment(_, StrEq("filename1.mp4"),
                                                kSegmentStartTime, _, _, _));
-  EXPECT_CALL(mock_notifier_, NotifyCueEvent(_, kCueStartTime));
+  EXPECT_CALL(mock_notifier_, NotifyCueEvent(_, kCueStartTime, _));
 
   EXPECT_CALL(mock_notifier_, NotifyEndOfStream());
   listener_.OnMediaEnd(

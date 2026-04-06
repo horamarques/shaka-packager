@@ -193,7 +193,8 @@ void MpdNotifyMuxerListener::OnMediaEnd(const MediaRanges& media_ranges,
         break;
       case EventInfoType::kCue:
         mpd_notifier_->NotifyCueEvent(notification_id_.value(),
-                                      event_info.cue_event_info.timestamp);
+                                      event_info.cue_event_info.timestamp,
+                                      event_info.cue_data);
         break;
     }
   }
@@ -239,13 +240,13 @@ void MpdNotifyMuxerListener::OnKeyFrame(int64_t timestamp,
 
 void MpdNotifyMuxerListener::OnCueEvent(int64_t timestamp,
                                         const std::string& cue_data) {
-  UNUSED(cue_data);
   if (mpd_notifier_->dash_profile() == DashProfile::kLive) {
-    mpd_notifier_->NotifyCueEvent(notification_id_.value(), timestamp);
+    mpd_notifier_->NotifyCueEvent(notification_id_.value(), timestamp, cue_data);
   } else {
     EventInfo event_info;
     event_info.type = EventInfoType::kCue;
     event_info.cue_event_info = {timestamp};
+    event_info.cue_data = cue_data;
     event_info_.push_back(event_info);
   }
 }
