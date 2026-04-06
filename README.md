@@ -16,6 +16,7 @@ streaming.
 Shaka Packager supports:
 
 - Both Video-On-Demand and Live.
+- Low Latency streaming (LL-DASH and LL-HLS).
 - Streaming formats:
   - [DASH](http://dashif.org/)
   - [HLS](https://developer.apple.com/streaming/)
@@ -69,6 +70,12 @@ Shaka Packager supports:
 [#272]: https://github.com/shaka-project/shaka-packager/issues/272
 [#405]: https://github.com/shaka-project/shaka-packager/issues/405
 [#584]: https://github.com/shaka-project/shaka-packager/issues/584
+
+- Ad Insertion
+  - Manual cue points via `--ad_cues`
+  - Automatic SCTE-35 splice command detection from MPEG-TS input
+  - HLS: `EXT-X-DATERANGE` with `SCTE35-OUT`/`SCTE35-IN` (RFC 8216bis)
+  - DASH: `EventStream` with `urn:scte:scte35:2013:xml` scheme
 
 - Platforms
   - Linux

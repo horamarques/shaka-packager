@@ -1,14 +1,26 @@
 Ad Insertion
 ============
 
-Shaka Packager does not do Ad Insertion directly, but it can precondition
-content for `Dynamic Ad Insertion <http://bit.ly/2KK10DD>`_ with Google Ad
-Manager.
+Shaka Packager can precondition content for
+`Dynamic Ad Insertion <http://bit.ly/2KK10DD>`_ with Google Ad Manager
+or other ad-insertion workflows. Both DASH and HLS are supported.
 
-Both DASH and HLS are supported.
+There are two ways to signal ad breaks:
+
+1. **Manual cue points** using ``--ad_cues`` — you supply explicit
+   timestamps on the command line.
+2. **SCTE-35 automatic detection** — when the input is an MPEG-TS file
+   containing SCTE-35 splice commands (``splice_insert`` or ``time_signal``),
+   Shaka Packager automatically parses them and converts them into cue events
+   with no additional flags required.
+
+.. _manual-cue-points:
+
+Manual Cue Points
+-----------------
 
 Synopsis
---------
+^^^^^^^^
 
 ::
 
@@ -17,7 +29,7 @@ Synopsis
       [Other options, e.g. DRM options, DASH options, HLS options]
 
 Examples
---------
+^^^^^^^^
 
 The examples below use the H264 streams created in :doc:`encoding`.
 
@@ -76,6 +88,78 @@ Use the below option if your player does not like it.
       'in=h264_high_1080p_6000.mp4,stream=video,segment_template=h264_1080p_$Number$.ts' \
       --ad_cues 600;1800;3000 \
       --hls_master_playlist_output h264_master.m3u8
+
+.. _scte35-automatic-detection:
+
+SCTE-35 Automatic Detection
+----------------------------
+
+When the input is an MPEG-TS file containing SCTE-35 splice commands, Shaka
+Packager automatically detects and processes them. No additional flags are
+required beyond normal packaging options.
+
+How it works
+^^^^^^^^^^^^
+
+1. The MPEG-TS demuxer detects the SCTE-35 PID via the **CUEI registration
+   descriptor** (``0x43554549``) in the Program Map Table (PMT).
+2. SCTE-35 ``splice_info_section()`` messages are parsed, supporting both
+   ``splice_insert`` (command type ``0x05``) and ``time_signal`` (command type
+   ``0x06``) commands.
+3. For ``time_signal`` commands with segmentation descriptors, the
+   ``segmentation_type_id`` determines the cue type:
+
+   - **Even IDs** (``0x30``, ``0x32``, ``0x34``, ...) map to **cue-out**
+     (ad break start).
+   - **Odd IDs** (``0x31``, ``0x33``, ``0x35``, ...) map to **cue-in**
+     (ad break end).
+   - Other IDs map to a generic **cue point**.
+
+4. Each detected cue event is aligned to the next keyframe boundary across all
+   streams and triggers a segment split.
+
+Output signaling
+^^^^^^^^^^^^^^^^
+
+**HLS**: SCTE-35 cue events are signaled using ``#EXT-X-DATERANGE`` tags with
+the original binary splice data hex-encoded in ``SCTE35-OUT`` or ``SCTE35-IN``
+attributes, as defined in `RFC 8216bis <https://datatracker.ietf.org/doc/html/draft-pantos-hls-rfc8216bis>`_::
+
+    #EXT-X-DATERANGE:ID="splice-1",START-DATE="2024-01-15T10:05:00Z",SCTE35-OUT=0xFC301600...
+
+**DASH**: SCTE-35 cue events generate an ``<EventStream>`` element within the
+corresponding ``<Period>`` using the ``urn:scte:scte35:2013:xml`` scheme.
+The binary splice data is Base64-encoded inside a ``<Signal><Binary>`` element::
+
+    <EventStream schemeIdUri="urn:scte:scte35:2013:xml">
+      <Event presentationTime="600" duration="0">
+        <Signal xmlns="http://www.scte.org/schemas/35/2016">
+          <Binary>/DAGAAAAAAAAAP/wBQb+AAAAAAA=</Binary>
+        </Signal>
+      </Event>
+    </EventStream>
+
+Example
+^^^^^^^
+
+Package an MPEG-TS file with embedded SCTE-35 markers for both DASH and HLS::
+
+    $ packager \
+      'in=live_feed.ts,stream=audio,init_segment=audio/init.mp4,segment_template=audio/$Number$.m4s,playlist_name=audio.m3u8' \
+      'in=live_feed.ts,stream=video,init_segment=video/init.mp4,segment_template=video/$Number$.m4s,playlist_name=video.m3u8' \
+      --mpd_output manifest.mpd \
+      --hls_master_playlist_output master.m3u8
+
+The SCTE-35 markers in ``live_feed.ts`` are automatically parsed, and the output
+manifests will contain the appropriate ad break signaling without any
+``--ad_cues`` flag.
+
+Combining manual cues with SCTE-35
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+You can use ``--ad_cues`` alongside SCTE-35 input. Manual cue points and
+SCTE-35 detected cue points are merged. Duplicate cue points at the same
+timestamp are automatically deduplicated.
 
 Configuration options
 ---------------------

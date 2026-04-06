@@ -128,6 +128,11 @@ When ``--low_latency_hls_mode`` is enabled, Shaka Packager produces:
   ``PART-HOLD-BACK`` set to three times the part target duration.
 * An **EXT-X-PRELOAD-HINT** tag so that clients can issue a blocking request
   for the next partial segment before it is available.
+* **EXT-X-SKIP** tags for delta playlist updates — when a client already has
+  older segments, the playlist can skip unchanged entries to reduce payload size.
+* **EXT-X-RENDITION-REPORT** tags on each media playlist, reporting the latest
+  media sequence number and part index of other renditions so the client can
+  switch renditions without an extra round trip.
 * HLS playlist version 9, as required by the LL-HLS specification.
 
 *************

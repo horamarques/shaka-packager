@@ -96,5 +96,21 @@ HLS options
 
 --create_session_keys
 
-    Playback of Offline HLS assets shall use EXT-X-SESSION-KEY to declare all 
+    Playback of Offline HLS assets shall use EXT-X-SESSION-KEY to declare all
     eligible content keys in the master playlist.
+
+--low_latency_hls_mode=0|1
+
+    Optional. Defaults to 0 if not specified. If set to 1, enables Low Latency
+    HLS (LL-HLS) mode. This produces EXT-X-PART tags for partial segments,
+    EXT-X-PART-INF, EXT-X-SERVER-CONTROL, EXT-X-PRELOAD-HINT, EXT-X-SKIP
+    (delta playlists), and EXT-X-RENDITION-REPORT tags. Requires
+    ``--hls_playlist_type LIVE`` and sets the playlist version to 9.
+
+--hls_part_target_duration <seconds>
+
+    Optional. Defaults to 0.5 seconds. Sets the target duration for each
+    partial segment (chunk) in LL-HLS mode. This value is written into
+    ``EXT-X-PART-INF:PART-TARGET`` and used to compute ``PART-HOLD-BACK``
+    (3x part target duration). Only used when ``--low_latency_hls_mode`` is
+    enabled.
