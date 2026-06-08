@@ -119,9 +119,15 @@ class MpdNotifier {
   /// @param container_id Container ID obtained from calling
   ///        NotifyNewContainer().
   /// @param timestamp is the timestamp of the CueEvent.
+  /// @param cue_data is the raw SCTE-35 splice_info_section bytes.
+  /// @param is_cue_out is true for a splice-out (ad break start), false for a
+  ///        splice-in / return to program.
+  /// @param duration_in_seconds is the break duration; 0 if not specified.
   /// @return true on success, false otherwise.
   virtual bool NotifyCueEvent(uint32_t container_id, int64_t timestamp,
-                              const std::string& cue_data = "") = 0;
+                              const std::string& cue_data = "",
+                              bool is_cue_out = true,
+                              double duration_in_seconds = 0) = 0;
 
   /// Notifiers MpdBuilder that there is a new PSSH for the container.
   /// This may be called whenever the key has to change, e.g. key rotation.

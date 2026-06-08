@@ -225,3 +225,39 @@ Examples of supporting players:
 * `Shaka Player <https://github.com/shaka-project/shaka-player>`_ (v4.3+)
 * `HLS.js <https://github.com/video-dev/hls.js>`_ (v1.2+)
 * Native Apple players (Safari, AVPlayer) on Apple platforms.
+
+
+####################################
+DRM and Key Rotation in Low Latency
+####################################
+
+Encryption (Widevine, PlayReady, raw key) and DRM key rotation work in both
+LL-DASH and LL-HLS exactly as they do in regular mode: the encryption and key
+rotation pipeline runs ahead of the low-latency segmenter and is not aware of
+partial segments.  In practice this means:
+
+* The encryption key for a crypto period is fetched on the first sample of the
+  full segment that begins the period, and applies to every partial segment
+  (chunk) inside that segment.
+* For HLS, a new ``#EXT-X-KEY`` tag is emitted when the key changes, immediately
+  before the first ``#EXT-X-PART`` of the new period.
+* For DASH and for fMP4/CENC clients, the rotated ``pssh`` and ``seig`` boxes
+  are rewritten in every chunk's ``moof``.
+
+Constraints
+===========
+
+* **Widevine only.**  Per-period key rotation is fully implemented for
+  Widevine.  PlayReady's ``GetCryptoPeriodKey`` currently returns the same key
+  for every period (no rotation), and the raw key source only provides a naive
+  test-only rotation that must not be used in production.
+* **Crypto period must be a multiple of the (full) segment duration.**  The
+  crypto period boundary is only evaluated at full-segment boundaries, never at
+  partial-segment boundaries.  A boundary that falls inside a segment is
+  deferred to the next full segment, so set ``--crypto_period_duration`` to an
+  integer multiple of ``--segment_duration``.
+* **Keep PSSH in stream.**  Key rotation relies on rewriting the in-stream
+  ``pssh``; do not disable ``--mp4_include_pssh_in_stream`` when rotating keys.
+
+Enable key rotation with ``--crypto_period_duration <seconds>`` together with
+the relevant key-source flags (e.g. ``--enable_widevine_encryption``).

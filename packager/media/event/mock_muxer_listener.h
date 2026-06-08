@@ -69,8 +69,11 @@ class MockMuxerListener : public MuxerListener {
                     uint64_t start_byte_offset,
                     uint64_t size));
 
-  MOCK_METHOD2(OnCueEvent,
-               void(int64_t timestamp, const std::string& cue_data));
+  MOCK_METHOD4(OnCueEvent,
+               void(int64_t timestamp,
+                    const std::string& cue_data,
+                    bool is_cue_out,
+                    double duration_in_seconds));
 };
 
 }  // namespace media

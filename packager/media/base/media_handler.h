@@ -49,6 +49,9 @@ enum class CueEventType { kCueIn, kCueOut, kCuePoint };
 struct CueEvent {
   CueEventType type = CueEventType::kCuePoint;
   double time_in_seconds;
+  // Break duration in seconds, carried from the SCTE-35 segmentation
+  // descriptor / splice_insert break_duration. 0 if not specified.
+  double duration_in_seconds = 0;
   std::string cue_data;
 };
 

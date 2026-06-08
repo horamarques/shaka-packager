@@ -189,7 +189,13 @@ class MuxerListener {
   /// Called when there is a new Ad Cue, which should align with (sub)segments.
   /// @param timestamp indicate the cue timestamp.
   /// @param cue_data is the data of the cue.
-  virtual void OnCueEvent(int64_t timestamp, const std::string& cue_data) = 0;
+  /// @param is_cue_out is true for a splice-out (ad break start), false for a
+  ///        splice-in (return to program).
+  /// @param duration_in_seconds is the break duration; 0 if not specified.
+  virtual void OnCueEvent(int64_t timestamp,
+                          const std::string& cue_data,
+                          bool is_cue_out,
+                          double duration_in_seconds) = 0;
 
  protected:
   MuxerListener() = default;

@@ -171,26 +171,33 @@ std::optional<xml::XmlNode> Period::GetXml(bool output_period_duration) {
 
   // Add EventStream for SCTE-35 events.
   if (!event_stream_events_.empty()) {
+    // Use a high timescale so splice presentation times and durations keep
+    // sub-second (frame-accurate) precision rather than being rounded to whole
+    // seconds. 90000 is the conventional MPEG presentation clock.
+    const int64_t kScte35EventStreamTimescale = 90000;
     xml::XmlNode event_stream("EventStream");
     if (!event_stream.SetStringAttribute(
             "schemeIdUri", "urn:scte:scte35:2013:xml") ||
-        !event_stream.SetIntegerAttribute("timescale", 1)) {
+        !event_stream.SetIntegerAttribute("timescale",
+                                          kScte35EventStreamTimescale)) {
       return std::nullopt;
     }
 
     for (const auto& evt : event_stream_events_) {
       xml::XmlNode event_node("Event");
-      int64_t presentation_time =
-          static_cast<int64_t>(evt.presentation_time_seconds -
-                               start_time_in_seconds_);
-      if (presentation_time < 0) presentation_time = 0;
+      double relative_time_seconds =
+          evt.presentation_time_seconds - start_time_in_seconds_;
+      if (relative_time_seconds < 0) relative_time_seconds = 0;
+      const int64_t presentation_time = static_cast<int64_t>(
+          relative_time_seconds * kScte35EventStreamTimescale);
       if (!event_node.SetIntegerAttribute("presentationTime",
                                           presentation_time)) {
         return std::nullopt;
       }
       if (evt.duration_seconds > 0) {
         if (!event_node.SetIntegerAttribute(
-                "duration", static_cast<int64_t>(evt.duration_seconds))) {
+                "duration", static_cast<int64_t>(evt.duration_seconds *
+                                                 kScte35EventStreamTimescale))) {
           return std::nullopt;
         }
       }

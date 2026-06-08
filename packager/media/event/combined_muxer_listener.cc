@@ -108,9 +108,11 @@ void CombinedMuxerListener::OnKeyFrame(int64_t timestamp,
 }
 
 void CombinedMuxerListener::OnCueEvent(int64_t timestamp,
-                                       const std::string& cue_data) {
+                                       const std::string& cue_data,
+                                       bool is_cue_out,
+                                       double duration_in_seconds) {
   for (auto& listener : muxer_listeners_) {
-    listener->OnCueEvent(timestamp, cue_data);
+    listener->OnCueEvent(timestamp, cue_data, is_cue_out, duration_in_seconds);
   }
 }
 

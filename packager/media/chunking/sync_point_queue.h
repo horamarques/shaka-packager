@@ -55,6 +55,7 @@ class SyncPointQueue {
   /// Dynamically add a cue point (e.g., from SCTE-35 input). Thread-safe.
   void AddDynamicCuePoint(double time_in_seconds,
                           CueEventType type,
+                          double duration_in_seconds,
                           const std::string& cue_data);
 
  private:

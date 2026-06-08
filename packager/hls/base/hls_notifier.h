@@ -107,9 +107,15 @@ class HlsNotifier {
 
   /// @param stream_id is the value set by NotifyNewStream().
   /// @param timestamp is the timestamp of the CueEvent.
+  /// @param cue_data is the raw SCTE-35 splice_info_section bytes.
+  /// @param is_cue_out is true for a splice-out (ad break start; SCTE35-OUT),
+  ///        false for a splice-in / return to program (SCTE35-IN).
+  /// @param duration_in_seconds is the break duration; 0 if not specified.
   /// @return true on success, false otherwise.
   virtual bool NotifyCueEvent(uint32_t stream_id, int64_t timestamp,
-                              const std::string& cue_data = "") = 0;
+                              const std::string& cue_data = "",
+                              bool is_cue_out = true,
+                              double duration_in_seconds = 0) = 0;
 
   /// @param stream_id is the value set by NotifyNewStream().
   /// @param key_id is the key ID for the stream.

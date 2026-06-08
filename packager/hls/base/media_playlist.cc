@@ -343,23 +343,32 @@ class DateRangeEntry : public HlsEntry {
   DateRangeEntry(const std::string& id,
                  const std::string& start_date,
                  const std::string& cue_data,
-                 bool is_cue_out)
+                 bool is_cue_out,
+                 double duration_in_seconds)
       : HlsEntry(HlsEntry::EntryType::kExtDateRange),
         id_(id),
         start_date_(start_date),
         cue_data_(cue_data),
-        is_cue_out_(is_cue_out) {}
+        is_cue_out_(is_cue_out),
+        duration_in_seconds_(duration_in_seconds) {}
 
   std::string ToString() override {
     std::string hex_data;
     for (unsigned char c : cue_data_) {
       absl::StrAppendFormat(&hex_data, "%02X", c);
     }
-    return absl::StrFormat(
+    std::string result = absl::StrFormat(
         "#EXT-X-DATERANGE:ID=\"%s\",START-DATE=\"%s\",%s=0x%s",
         id_, start_date_,
         is_cue_out_ ? "SCTE35-OUT" : "SCTE35-IN",
         hex_data);
+    // DURATION/PLANNED-DURATION only apply to the out point (the ad break);
+    // the in point closes a range opened by a prior out.
+    if (is_cue_out_ && duration_in_seconds_ > 0) {
+      absl::StrAppendFormat(&result, ",PLANNED-DURATION=%.3f",
+                            duration_in_seconds_);
+    }
+    return result;
   }
 
  private:
@@ -367,6 +376,7 @@ class DateRangeEntry : public HlsEntry {
   const std::string start_date_;
   const std::string cue_data_;
   const bool is_cue_out_;
+  const double duration_in_seconds_;
 };
 
 class PlacementOpportunityEntry : public HlsEntry {
@@ -646,7 +656,8 @@ void MediaPlaylist::AddPlacementOpportunity() {
 
 void MediaPlaylist::AddDateRange(int64_t timestamp,
                                  const std::string& cue_data,
-                                 bool is_cue_out) {
+                                 bool is_cue_out,
+                                 double duration_in_seconds) {
   static int date_range_counter = 0;
   std::string id = absl::StrFormat("splice-%d", ++date_range_counter);
 
@@ -667,8 +678,8 @@ void MediaPlaylist::AddDateRange(int64_t timestamp,
     start_date = "1970-01-01T00:00:00.000Z";
   }
 
-  entries_.emplace_back(
-      new DateRangeEntry(id, start_date, cue_data, is_cue_out));
+  entries_.emplace_back(new DateRangeEntry(id, start_date, cue_data, is_cue_out,
+                                           duration_in_seconds));
 }
 
 void MediaPlaylist::SetSiblingPlaylists(

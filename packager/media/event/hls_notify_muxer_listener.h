@@ -84,7 +84,10 @@ class HlsNotifyMuxerListener : public MuxerListener {
   void OnKeyFrame(int64_t timestamp,
                   uint64_t start_byte_offset,
                   uint64_t size) override;
-  void OnCueEvent(int64_t timestamp, const std::string& cue_data) override;
+  void OnCueEvent(int64_t timestamp,
+                  const std::string& cue_data,
+                  bool is_cue_out,
+                  double duration_in_seconds) override;
   /// @}
 
  private:

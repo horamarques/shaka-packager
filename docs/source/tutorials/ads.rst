@@ -123,16 +123,29 @@ Output signaling
 
 **HLS**: SCTE-35 cue events are signaled using ``#EXT-X-DATERANGE`` tags with
 the original binary splice data hex-encoded in ``SCTE35-OUT`` or ``SCTE35-IN``
-attributes, as defined in `RFC 8216bis <https://datatracker.ietf.org/doc/html/draft-pantos-hls-rfc8216bis>`_::
+attributes, as defined in `RFC 8216bis <https://datatracker.ietf.org/doc/html/draft-pantos-hls-rfc8216bis>`_.
+The cue-out / cue-in distinction is derived from the SCTE-35 segmentation type
+(see above): out points emit ``SCTE35-OUT``, return-to-program points emit
+``SCTE35-IN``.  When the splice carries a break duration, the out point also
+emits ``PLANNED-DURATION``::
 
-    #EXT-X-DATERANGE:ID="splice-1",START-DATE="2024-01-15T10:05:00Z",SCTE35-OUT=0xFC301600...
+    #EXT-X-DATERANGE:ID="splice-1",START-DATE="2024-01-15T10:05:00Z",SCTE35-OUT=0xFC301600...,PLANNED-DURATION=30.000
+
+.. note::
+
+    ``START-DATE`` is anchored to a wall-clock reference taken when packaging
+    starts.  This reference is now established regardless of the
+    ``--hls_program_date_time`` flag, so DATERANGE timestamps are valid even
+    when EXT-X-PROGRAM-DATE-TIME output is disabled.
 
 **DASH**: SCTE-35 cue events generate an ``<EventStream>`` element within the
 corresponding ``<Period>`` using the ``urn:scte:scte35:2013:xml`` scheme.
-The binary splice data is Base64-encoded inside a ``<Signal><Binary>`` element::
+The binary splice data is Base64-encoded inside a ``<Signal><Binary>`` element.
+A 90 kHz ``timescale`` is used so that ``presentationTime`` and ``duration``
+keep sub-second (frame-accurate) precision::
 
-    <EventStream schemeIdUri="urn:scte:scte35:2013:xml">
-      <Event presentationTime="600" duration="0">
+    <EventStream schemeIdUri="urn:scte:scte35:2013:xml" timescale="90000">
+      <Event presentationTime="54000000" duration="2700000">
         <Signal xmlns="http://www.scte.org/schemas/35/2016">
           <Binary>/DAGAAAAAAAAAP/wBQb+AAAAAAA=</Binary>
         </Signal>
@@ -160,6 +173,23 @@ Combining manual cues with SCTE-35
 You can use ``--ad_cues`` alongside SCTE-35 input. Manual cue points and
 SCTE-35 detected cue points are merged. Duplicate cue points at the same
 timestamp are automatically deduplicated.
+
+Low latency
+^^^^^^^^^^^
+
+SCTE-35 detection and signaling are not aware of low latency: the same pipeline
+runs whether or not ``--low_latency_dash_mode`` / ``--low_latency_hls_mode`` is
+set.  A detected cue forces a full-segment boundary, and the resulting
+``#EXT-X-DATERANGE`` (HLS) or ``<EventStream>`` (DASH) is emitted exactly as in
+regular mode.  In LL-HLS the new ``#EXT-X-DATERANGE`` is written into the
+playlist immediately before the first ``#EXT-X-PART`` of the segment that starts
+at the splice point.
+
+.. note::
+
+    SCTE-35 detection from MPEG-TS input is a Velocix fork feature; it is not
+    present in upstream shaka-project. Upstream supports only manual
+    ``--ad_cues``.
 
 Configuration options
 ---------------------

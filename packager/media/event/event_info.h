@@ -34,6 +34,8 @@ struct KeyFrameEvent {
 // This stores data passed into OnCueEvent() for VOD.
 struct CueEventInfo {
   int64_t timestamp;
+  bool is_cue_out = true;
+  double duration_in_seconds = 0;
 };
 
 enum class EventInfoType {

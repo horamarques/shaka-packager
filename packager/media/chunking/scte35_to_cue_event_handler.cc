@@ -30,8 +30,9 @@ void Scte35ToCueEventHandler::OnScte35Event(
                           : cue_type == CueEventType::kCueIn ? "CUE-IN"
                           : "CUE-POINT");
 
-  sync_points_->AddDynamicCuePoint(
-      event->start_time_in_seconds, cue_type, event->cue_data);
+  sync_points_->AddDynamicCuePoint(event->start_time_in_seconds, cue_type,
+                                   event->duration_in_seconds,
+                                   event->cue_data);
 }
 
 CueEventType Scte35ToCueEventHandler::MapSegmentationTypeToCueType(

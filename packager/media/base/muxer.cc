@@ -81,11 +81,15 @@ Status Muxer::Process(std::unique_ptr<StreamData> stream_data) {
       if (muxer_listener_) {
         const int64_t time_scale =
             streams_[stream_data->stream_index]->time_scale();
-        const double time_in_seconds = stream_data->cue_event->time_in_seconds;
+        const CueEvent& cue_event = *stream_data->cue_event;
+        const double time_in_seconds = cue_event.time_in_seconds;
         const int64_t scaled_time =
             static_cast<int64_t>(time_in_seconds * time_scale);
-        muxer_listener_->OnCueEvent(scaled_time,
-                                    stream_data->cue_event->cue_data);
+        // kCueIn marks a return to program (splice-in); everything else
+        // (kCueOut, kCuePoint) marks a splice-out / ad break start.
+        const bool is_cue_out = cue_event.type != CueEventType::kCueIn;
+        muxer_listener_->OnCueEvent(scaled_time, cue_event.cue_data, is_cue_out,
+                                    cue_event.duration_in_seconds);
 
         // Finalize and re-initialize Muxer to generate different content files.
         if (!output_file_template_.empty()) {

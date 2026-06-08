@@ -276,9 +276,12 @@ std::unique_ptr<MediaPlaylist> MediaPlaylistFactory::Create(
 SimpleHlsNotifier::SimpleHlsNotifier(const HlsParams& hls_params)
     : HlsNotifier(hls_params),
       media_playlist_factory_(new MediaPlaylistFactory()) {
-  if (hls_params.add_program_date_time) {
-    reference_time_ = absl::Now();
-  }
+  // Establish a wall-clock reference for the start of packaging. This anchors
+  // both EXT-X-PROGRAM-DATE-TIME (gated separately by add_program_date_time)
+  // and EXT-X-DATERANGE START-DATE for SCTE-35 markers. It must be set
+  // unconditionally; otherwise DATERANGE START-DATE collapses to the 1970
+  // epoch when add_program_date_time is disabled.
+  reference_time_ = absl::Now();
   const auto master_playlist_path =
       std::filesystem::u8path(hls_params.master_playlist_output);
   master_playlist_dir_ = master_playlist_path.parent_path().string();
@@ -471,7 +474,9 @@ bool SimpleHlsNotifier::NotifyKeyFrame(uint32_t stream_id,
 }
 
 bool SimpleHlsNotifier::NotifyCueEvent(uint32_t stream_id, int64_t timestamp,
-                                       const std::string& cue_data) {
+                                       const std::string& cue_data,
+                                       bool is_cue_out,
+                                       double duration_in_seconds) {
   absl::MutexLock lock(lock_);
   auto stream_iterator = stream_map_.find(stream_id);
   if (stream_iterator == stream_map_.end()) {
@@ -480,7 +485,8 @@ bool SimpleHlsNotifier::NotifyCueEvent(uint32_t stream_id, int64_t timestamp,
   }
   auto& media_playlist = stream_iterator->second->media_playlist;
   if (!cue_data.empty()) {
-    media_playlist->AddDateRange(timestamp, cue_data, true);
+    media_playlist->AddDateRange(timestamp, cue_data, is_cue_out,
+                                 duration_in_seconds);
   } else {
     media_playlist->AddPlacementOpportunity();
   }

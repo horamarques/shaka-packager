@@ -196,8 +196,10 @@ class MediaPlaylist {
   /// @param timestamp is in timescale of the media.
   /// @param cue_data is the raw SCTE-35 section data.
   /// @param is_cue_out true for SCTE35-OUT, false for SCTE35-IN.
+  /// @param duration_in_seconds is the break duration; when > 0 and is_cue_out
+  ///        is true, a DURATION/PLANNED-DURATION attribute is emitted.
   virtual void AddDateRange(int64_t timestamp, const std::string& cue_data,
-                            bool is_cue_out);
+                            bool is_cue_out, double duration_in_seconds);
 
   /// Register sibling playlists for EXT-X-RENDITION-REPORT generation.
   /// Called by MasterPlaylist before the first write.

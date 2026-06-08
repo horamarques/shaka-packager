@@ -9,6 +9,7 @@
 #include <absl/log/check.h>
 #include <absl/log/log.h>
 
+#include <packager/macros/compiler.h>
 #include <packager/mpd/base/adaptation_set.h>
 #include <packager/mpd/base/mpd_builder.h>
 #include <packager/mpd/base/mpd_notifier_util.h>
@@ -136,7 +137,9 @@ bool SimpleMpdNotifier::NotifyCompletedSegment(uint32_t container_id,
 
 bool SimpleMpdNotifier::NotifyCueEvent(uint32_t container_id,
                                        int64_t timestamp,
-                                       const std::string& cue_data) {
+                                       const std::string& cue_data,
+                                       bool is_cue_out,
+                                       double duration_in_seconds) {
   absl::MutexLock lock(lock_);
   auto it = representation_map_.find(container_id);
   if (it == representation_map_.end()) {
@@ -153,8 +156,12 @@ bool SimpleMpdNotifier::NotifyCueEvent(uint32_t container_id,
 
   Period* period = mpd_builder_->GetOrCreatePeriod(period_start_time_seconds);
   DCHECK(period);
+  // is_cue_out is not signaled separately in a DASH SCTE-35 EventStream; the
+  // splice command type is encoded in the raw cue_data carried in the Signal.
+  UNUSED(is_cue_out);
   if (!cue_data.empty()) {
-    period->AddEventStreamEvent(period_start_time_seconds, 0.0, cue_data);
+    period->AddEventStreamEvent(period_start_time_seconds, duration_in_seconds,
+                                cue_data);
   }
   AdaptationSet* adaptation_set = period->GetOrCreateAdaptationSet(
       media_info, content_protection_in_adaptation_set_);
