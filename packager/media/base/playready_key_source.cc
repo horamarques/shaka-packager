@@ -217,7 +217,14 @@ Status PlayReadyKeySource::GetCryptoPeriodKey(
   UNUSED(crypto_period_index);
   UNUSED(crypto_period_duration_in_seconds);
   UNUSED(stream_label);
-  // TODO(robinconnell): Implement key rotation.
+  // TODO(robinconnell): Implement key rotation. The PlayReady key source does
+  // not (yet) fetch a distinct key per crypto period, so every period reuses
+  // the same key. Warn once so this limitation is not silently mistaken for
+  // working key rotation; for rotating PlayReady keys use a key server that
+  // supports per-period key delivery.
+  LOG_FIRST_N(WARNING, 1)
+      << "PlayReady key rotation is not implemented; the same key will be used "
+         "for every crypto period.";
   *key = *encryption_key_;
   return Status::OK;
 }

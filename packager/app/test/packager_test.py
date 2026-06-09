@@ -1230,6 +1230,39 @@ class PackagerFunctionalTest(PackagerAppTest):
         any('#EXT-X-PART' in c for c in playlists.values()),
         'LL-HLS partial segments should survive a cue-driven reinit.')
 
+  def testScte35FromTransportStreamLowLatency(self):
+    # End-to-end SCTE-35 from MPEG-TS input through to LL-HLS DATERANGE and
+    # DASH EventStream. This requires an MPEG-TS asset whose PMT carries a CUEI
+    # registration descriptor and SCTE-35 splice commands. No such asset exists
+    # in the test data yet, so the test skips until one is added (drop a file
+    # named bear-640x360-scte35.ts into packager/media/test/data to enable it).
+    #
+    # The pieces of this path are covered elsewhere in the meantime:
+    #   - SCTE-35 section parsing: mp2t ts_section_scte35_unittest
+    #   - cue -> manifest wiring in LL-HLS: testLowLatencyHlsWithAdCues
+    #   - DATERANGE / EventStream output: media_playlist and period unit tests.
+    scte35_ts = os.path.join(self.test_data_dir, 'bear-640x360-scte35.ts')
+    if not os.path.exists(scte35_ts):
+      self.skipTest('No SCTE-35 MPEG-TS asset available '
+                    '(bear-640x360-scte35.ts).')
+    self.assertPackageSuccess(
+        self._GetStreams(['video'],
+                         output_format='mp4',
+                         segmented=True,
+                         hls=True,
+                         test_files=['bear-640x360-scte35.ts']),
+        self._GetFlags(
+            output_hls=True,
+            output_dash=True,
+            hls_playlist_type='LIVE',
+            low_latency_hls_mode=True,
+            segment_duration=1.0))
+    self.assertTrue(
+        any('#EXT-X-DATERANGE' in c for c in self._ReadMediaPlaylists().values()),
+        'SCTE-35 from TS should produce EXT-X-DATERANGE in LL-HLS output.')
+    with open(self.mpd_output, 'r') as f:
+      self.assertIn('urn:scte:scte35:2013:xml', f.read())
+
   def testAvcTsEventPlaylist(self):
     self.assertPackageSuccess(
         self._GetStreams(['audio', 'video'],
