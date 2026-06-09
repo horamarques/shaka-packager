@@ -471,6 +471,7 @@ class PackagerAppTest(unittest.TestCase):
                 random_iv=False,
                 widevine_encryption=False,
                 key_rotation=False,
+                crypto_period_duration=None,
                 include_pssh_in_stream=True,
                 dash_if_iop=True,
                 output_media_info=False,
@@ -489,6 +490,9 @@ class PackagerAppTest(unittest.TestCase):
                 dash_force_segment_list=False,
                 force_cl_index=None,
                 start_segment_number=None,
+                low_latency_dash_mode=False,
+                low_latency_hls_mode=False,
+                hls_part_target_duration=None,
                 use_dovi_supplemental_codecs=None):
     flags = ['--single_threaded']
 
@@ -538,7 +542,9 @@ class PackagerAppTest(unittest.TestCase):
                                                     self.encryption_key)
       ]
 
-    if key_rotation:
+    if crypto_period_duration is not None:
+      flags.append('--crypto_period_duration={0}'.format(crypto_period_duration))
+    elif key_rotation:
       flags.append('--crypto_period_duration=1')
 
     if not include_pssh_in_stream:
@@ -593,6 +599,14 @@ class PackagerAppTest(unittest.TestCase):
     if dash_force_segment_list:
       flags += ['--dash_force_segment_list']
       flags += ['--generate_sidx_in_media_segments=false']
+
+    if low_latency_dash_mode:
+      flags += ['--low_latency_dash_mode=true']
+    if low_latency_hls_mode:
+      flags += ['--low_latency_hls_mode=true']
+    if hls_part_target_duration is not None:
+      flags += ['--hls_part_target_duration={0}'.format(
+          hls_part_target_duration)]
 
     flags.append('--segment_duration={0}'.format(segment_duration))
 
@@ -1101,6 +1115,120 @@ class PackagerFunctionalTest(PackagerAppTest):
             hls_playlist_type='LIVE',
             time_shift_buffer_depth=0.5))
     self._CheckTestResults('avc-ts-live-playlist-with-key-rotation')
+
+  def _ReadMediaPlaylists(self):
+    """Return {filename: content} for every media (non-master) HLS playlist."""
+    playlists = {}
+    master = os.path.basename(self.hls_master_playlist_output)
+    for name in os.listdir(self.tmp_dir):
+      if name.endswith('.m3u8') and name != master:
+        with open(os.path.join(self.tmp_dir, name), 'r') as f:
+          playlists[name] = f.read()
+    return playlists
+
+  def testLowLatencyHlsWithKeyRotation(self):
+    # Validates that DRM key rotation propagates through the LL-HLS partial
+    # segment path. Note: HLS only signals keys for content with a real DRM
+    # system (raw-key CENC with the "identity" keyformat is intentionally not
+    # emitted), so FairPlay is used here. The key must rotate per crypto period
+    # and the new EXT-X-KEY must land at a segment boundary, never in the middle
+    # of a segment's partial segments.
+    self.assertPackageSuccess(
+        self._GetStreams(['video'],
+                         output_format='mp4',
+                         segmented=True,
+                         hls=True,
+                         test_files=['bear-640x360.ts']),
+        self._GetFlags(
+            encryption=True,
+            protection_systems='FairPlay',
+            protection_scheme='cbcs',
+            key_rotation=True,
+            output_hls=True,
+            hls_playlist_type='LIVE',
+            low_latency_hls_mode=True,
+            segment_duration=1.0))
+    playlists = self._ReadMediaPlaylists()
+    self.assertTrue(playlists)
+    saw_parts_and_rotation = False
+    for content in playlists.values():
+      if '#EXT-X-PART' in content and content.count('#EXT-X-KEY') >= 2:
+        saw_parts_and_rotation = True
+        # Re-key must happen at a segment boundary, never wedged between the
+        # partial segments of a single segment (#2).
+        self.assertNotRegex(content, r'#EXT-X-PART:[^\n]*\n#EXT-X-KEY')
+    self.assertTrue(
+        saw_parts_and_rotation,
+        'Expected an LL-HLS media playlist with >=2 rotated keys:\n' +
+        '\n'.join(playlists.values()))
+
+  def testLowLatencyHlsCryptoPeriodNotAlignedToSegment(self):
+    # A crypto period that is not a multiple of the segment duration must not
+    # crash and must not re-key in the middle of a segment's partial segments;
+    # the boundary is deferred to the next full segment. Here the 1s crypto
+    # period is misaligned against 0.75s segments (boundaries at 0/0.75/1.5/..).
+    self.assertPackageSuccess(
+        self._GetStreams(['video'],
+                         output_format='mp4',
+                         segmented=True,
+                         hls=True,
+                         test_files=['bear-640x360.ts']),
+        self._GetFlags(
+            encryption=True,
+            crypto_period_duration=1,
+            output_hls=True,
+            hls_playlist_type='LIVE',
+            low_latency_hls_mode=True,
+            segment_duration=0.75))
+    for content in self._ReadMediaPlaylists().values():
+      # No mid-segment re-key even when the period is misaligned.
+      self.assertNotRegex(content, r'#EXT-X-PART:[^\n]*\n#EXT-X-KEY')
+
+  def testLowLatencyHlsWithClearLead(self):
+    # The clear-lead segment must be unencrypted (no EXT-X-KEY before it) and
+    # encryption must start at a later segment boundary, not inside the first
+    # segment's partial segments.
+    self.assertPackageSuccess(
+        self._GetStreams(['video'],
+                         output_format='mp4',
+                         segmented=True,
+                         hls=True,
+                         test_files=['bear-640x360.ts']),
+        self._GetFlags(
+            encryption=True,
+            output_hls=True,
+            hls_playlist_type='LIVE',
+            low_latency_hls_mode=True,
+            segment_duration=1.0))
+    for content in self._ReadMediaPlaylists().values():
+      if '#EXT-X-KEY' in content and '#EXTINF' in content:
+        # clear_lead (0.8s) keeps the first 1s segment clear, so the first key
+        # appears only after the first segment.
+        self.assertLess(content.index('#EXTINF'),
+                        content.index('#EXT-X-KEY'))
+
+  def testLowLatencyHlsWithAdCues(self):
+    # A cue forces a full-segment boundary and the muxer finalizes/reinitializes
+    # the output. Validate that this does not corrupt the LL-HLS partial
+    # structure: parts and a discontinuity are both present and the package
+    # succeeds.
+    self.assertPackageSuccess(
+        self._GetStreams(['video'],
+                         output_format='mp4',
+                         segmented=True,
+                         hls=True,
+                         test_files=['bear-640x360.ts']),
+        self._GetFlags(
+            output_hls=True,
+            hls_playlist_type='LIVE',
+            low_latency_hls_mode=True,
+            segment_duration=1.0,
+            ad_cues='1'))
+    playlists = self._ReadMediaPlaylists()
+    self.assertTrue(playlists)
+    self.assertTrue(
+        any('#EXT-X-PART' in c for c in playlists.values()),
+        'LL-HLS partial segments should survive a cue-driven reinit.')
 
   def testAvcTsEventPlaylist(self):
     self.assertPackageSuccess(
