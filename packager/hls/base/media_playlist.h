@@ -389,6 +389,10 @@ class MediaPlaylist {
   uint64_t next_part_byte_offset_ = 0;
   // File name of the in-progress segment (for PRELOAD-HINT)
   std::string current_segment_file_name_;
+  // Largest partial-segment duration emitted so far (seconds). EXT-X-PART-INF
+  // PART-TARGET must be an upper bound on every Partial Segment, so the
+  // advertised value is max(configured part target, this).
+  double largest_part_duration_seconds_ = 0;
 
   // Sibling playlists for EXT-X-RENDITION-REPORT (set by MasterPlaylist).
   std::vector<const MediaPlaylist*> sibling_playlists_;

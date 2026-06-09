@@ -606,6 +606,12 @@ void MediaPlaylist::AddPartialSegment(const std::string& file_name,
   const double duration_seconds =
       static_cast<double>(duration) / time_scale_;
 
+  // Track the largest part so PART-TARGET can be advertised as a true upper
+  // bound (RFC 8216bis 4.4.3.7). Parts are key-frame aligned, so when the GOP
+  // is coarser than the configured part target the actual parts are larger.
+  largest_part_duration_seconds_ =
+      std::max(largest_part_duration_seconds_, duration_seconds);
+
   // Track state for PRELOAD-HINT generation.
   current_segment_file_name_ = file_name;
   next_part_byte_offset_ = start_byte_offset + size;
@@ -698,15 +704,29 @@ uint32_t MediaPlaylist::GetLastMediaSequenceNumber() const {
 }
 
 int MediaPlaylist::GetLastPartIndex() const {
+  // In-progress segment at the live edge: the pending parts are the parts of
+  // the segment identified by LAST-MSN.
   if (!pending_parts_.empty())
     return static_cast<int>(pending_parts_.size()) - 1;
-  // Check for kExtPart entries associated with the last full segment.
+  // Otherwise LAST-MSN is the last completed segment; LAST-PART is the index of
+  // the last EXT-X-PART belonging to it, i.e. the run of EXT-X-PART entries
+  // immediately preceding that segment's EXT-X-INF. Iterating in reverse, skip
+  // the last segment's own EXTINF, then count its parts until the previous
+  // segment boundary.
   int part_count = 0;
+  bool past_last_segment_extinf = false;
   for (auto it = entries_.rbegin(); it != entries_.rend(); ++it) {
-    if ((*it)->type() == HlsEntry::EntryType::kExtInf)
-      break;  // Stop at the last full segment boundary.
-    if ((*it)->type() == HlsEntry::EntryType::kExtPart)
+    if ((*it)->type() == HlsEntry::EntryType::kExtInf) {
+      if (!past_last_segment_extinf) {
+        past_last_segment_extinf = true;
+        continue;
+      }
+      break;  // Reached the previous segment.
+    }
+    if (past_last_segment_extinf &&
+        (*it)->type() == HlsEntry::EntryType::kExtPart) {
       part_count++;
+    }
   }
   if (part_count > 0)
     return part_count - 1;
@@ -726,11 +746,16 @@ bool MediaPlaylist::WriteToFile(const std::filesystem::path& file_path,
     playlist_type = HlsPlaylistType::kVod;
   }
 
+  // PART-TARGET must be an upper bound on every Partial Segment, so advertise
+  // at least the largest part actually produced (e.g. when key-frame-aligned
+  // parts are longer than the configured target because of a coarse GOP).
+  const double effective_part_target_duration =
+      std::max(hls_params_.part_target_duration, largest_part_duration_seconds_);
   std::string content = CreatePlaylistHeader(
       media_info_, target_duration_, playlist_type, stream_type_,
       media_sequence_number_, discontinuity_sequence_number_,
       hls_params_.start_time_offset, hls_params_.low_latency_hls_mode,
-      hls_params_.part_target_duration);
+      effective_part_target_duration);
 
   // EXT-X-SKIP: In LL-HLS live mode, skip rendering old segments that fall
   // outside the CAN-SKIP-UNTIL window. This is a rendering-only optimization;

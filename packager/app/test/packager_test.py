@@ -1256,6 +1256,32 @@ class PackagerFunctionalTest(PackagerAppTest):
                        'Parts should be grouped to the part target, not '
                        'emitted per frame: %r' % part_durations)
 
+  def testLowLatencyHlsPartTargetIsUpperBound(self):
+    # RFC 8216bis 4.4.3.7: the advertised PART-TARGET must be an upper bound on
+    # every EXT-X-PART duration. With key-frame-aligned parts and a GOP coarser
+    # than the configured part target, parts are larger than 0.5s, so the
+    # advertised PART-TARGET must be raised to cover them.
+    self.assertPackageSuccess(
+        self._GetStreams(['video'],
+                         output_format='mp4',
+                         segmented=True,
+                         hls=True,
+                         test_files=['bear-640x360.ts']),
+        self._GetFlags(
+            output_hls=True,
+            hls_playlist_type='LIVE',
+            low_latency_hls_mode=True,
+            segment_duration=2.0))
+    for content in self._ReadMediaPlaylists().values():
+      m = re.search(r'#EXT-X-PART-INF:PART-TARGET=([0-9.]+)', content)
+      if not m:
+        continue
+      part_target = float(m.group(1))
+      for d in re.finditer(r'#EXT-X-PART:DURATION=([0-9.]+)', content):
+        self.assertLessEqual(
+            float(d.group(1)), part_target,
+            'EXT-X-PART duration must not exceed PART-TARGET (%s)' % part_target)
+
   def testScte35FromTransportStreamLowLatency(self):
     # End-to-end SCTE-35 from MPEG-TS input through to LL-HLS DATERANGE and
     # DASH EventStream. This requires an MPEG-TS asset whose PMT carries a CUEI
