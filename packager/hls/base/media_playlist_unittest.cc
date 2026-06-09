@@ -1365,6 +1365,55 @@ TEST_F(MediaPlaylistMultiSegmentTest, ProgramDateTimeWithDiscontinuity) {
   EXPECT_TRUE(media_playlist_->WriteToFile(kMemoryFilePath, false, true));
   ASSERT_FILE_STREQ(kMemoryFilePath, kExpectedOutput);
 }
+TEST_F(MediaPlaylistMultiSegmentTest, DateRangeCueOutAndCueIn) {
+  // Anchor the wall-clock reference so START-DATE is deterministic and, in
+  // particular, not the 1970 epoch (regression guard for the case where
+  // add_program_date_time is disabled).
+  absl::Time reference_time;
+  std::string err;
+  ASSERT_TRUE(absl::ParseTime("%Y-%m-%dT%H:%M:%E3SZ",
+                              "2025-10-12T14:00:00.000Z", &reference_time,
+                              &err))
+      << err;
+  media_playlist_->SetReferenceTime(reference_time);
+
+  ASSERT_TRUE(media_playlist_->SetMediaInfo(valid_video_media_info_));
+
+  // Cue-out at t=10s with a 30s break duration -> SCTE35-OUT + PLANNED-DURATION.
+  media_playlist_->AddDateRange(10 * kTimeScale, std::string("\xFC\x30", 2),
+                                /*is_cue_out=*/true,
+                                /*duration_in_seconds=*/30.0);
+  media_playlist_->AddSegment("file1.ts", 10 * kTimeScale, 10 * kTimeScale,
+                              kZeroByteOffset, kMBytes);
+  // Cue-in at t=40s -> SCTE35-IN, no PLANNED-DURATION.
+  media_playlist_->AddDateRange(40 * kTimeScale, std::string("\xFC\x30", 2),
+                                /*is_cue_out=*/false,
+                                /*duration_in_seconds=*/0.0);
+  media_playlist_->AddSegment("file2.ts", 40 * kTimeScale, 10 * kTimeScale,
+                              kZeroByteOffset, kMBytes);
+
+  const char kExpectedOutput[] =
+      "#EXTM3U\n"
+      "#EXT-X-VERSION:6\n"
+      "## Generated with https://github.com/shaka-project/shaka-packager "
+      "version test\n"
+      "#EXT-X-TARGETDURATION:10\n"
+      "#EXT-X-PLAYLIST-TYPE:VOD\n"
+      "#EXT-X-DATERANGE:ID=\"splice-1\",START-DATE=\"2025-10-12T14:00:10.000Z\","
+      "SCTE35-OUT=0xFC30,PLANNED-DURATION=30.000\n"
+      "#EXTINF:10.000,\n"
+      "file1.ts\n"
+      "#EXT-X-DATERANGE:ID=\"splice-2\",START-DATE=\"2025-10-12T14:00:40.000Z\","
+      "SCTE35-IN=0xFC30\n"
+      "#EXTINF:10.000,\n"
+      "file2.ts\n"
+      "#EXT-X-ENDLIST\n";
+
+  const char kMemoryFilePath[] = "memory://media.m3u8";
+  EXPECT_TRUE(media_playlist_->WriteToFile(kMemoryFilePath, false, true));
+  ASSERT_FILE_STREQ(kMemoryFilePath, kExpectedOutput);
+}
+
 // LL-HLS tests
 class LowLatencyHlsMediaPlaylistTest : public MediaPlaylistMultiSegmentTest {
  protected:

@@ -658,8 +658,7 @@ void MediaPlaylist::AddDateRange(int64_t timestamp,
                                  const std::string& cue_data,
                                  bool is_cue_out,
                                  double duration_in_seconds) {
-  static int date_range_counter = 0;
-  std::string id = absl::StrFormat("splice-%d", ++date_range_counter);
+  std::string id = absl::StrFormat("splice-%d", ++date_range_counter_);
 
   std::string start_date;
   if (reference_time_ != absl::InfinitePast() && time_scale_ > 0) {

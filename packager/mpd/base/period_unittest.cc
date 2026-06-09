@@ -213,6 +213,32 @@ TEST_F(PeriodTest, LowLatencyDashMpdGetXml) {
               XmlNodeEqual(kExpectedXml));
 }
 
+TEST_F(PeriodTest, Scte35EventStreamGetXml) {
+  mpd_options_.mpd_type = MpdType::kDynamic;
+
+  // Period starts at 5.6s; an event at 10.6s is 5.0s into the period. With a
+  // 90kHz timescale that is 450000, and a 2.0s duration is 180000 — both
+  // retain sub-second precision rather than collapsing to whole seconds.
+  testable_period_.AddEventStreamEvent(/*presentation_time_seconds=*/10.6,
+                                       /*duration_seconds=*/2.0,
+                                       std::string("\x01\x02\x03", 3));
+
+  auto period_xml = testable_period_.GetXml(!kOutputPeriodDuration);
+  ASSERT_TRUE(period_xml);
+  const std::string xml = period_xml->ToString(/*comment=*/"");
+
+  // The EventStream uses a 90kHz timescale and scales presentationTime /
+  // duration accordingly (regression guard against the previous timescale=1
+  // whole-second rounding).
+  EXPECT_THAT(xml, ::testing::HasSubstr(
+                       "schemeIdUri=\"urn:scte:scte35:2013:xml\""));
+  EXPECT_THAT(xml, ::testing::HasSubstr("timescale=\"90000\""));
+  EXPECT_THAT(xml, ::testing::HasSubstr("presentationTime=\"450000\""));
+  EXPECT_THAT(xml, ::testing::HasSubstr("duration=\"180000\""));
+  // Raw splice bytes are Base64-encoded in the Signal/Binary element.
+  EXPECT_THAT(xml, ::testing::HasSubstr("<Binary>AQID</Binary>"));
+}
+
 TEST_F(PeriodTest, SetDurationAndGetXml) {
   const char kVideoMediaInfo[] =
       "video_info {\n"

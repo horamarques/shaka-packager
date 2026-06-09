@@ -363,6 +363,10 @@ class MediaPlaylist {
   // This is the wall clock time when media timestamp is 0.
   absl::Time reference_time_;
 
+  // Monotonic counter for generating unique EXT-X-DATERANGE IDs within this
+  // playlist (e.g. "splice-1", "splice-2").
+  int date_range_counter_ = 0;
+
   // Used by kVideoIFrameOnly playlists to track the i-frames (key frames).
   struct KeyFrameInfo {
     int64_t timestamp;
