@@ -401,6 +401,17 @@ std::optional<PackagingParams> GetPackagingParams() {
   chunking_params.ts_ttx_heartbeat_shift =
       absl::GetFlag(FLAGS_ts_ttx_heartbeat_shift);
 
+  // In LL-HLS, partial segments should be grouped to the advertised part
+  // target duration. If the user did not set an explicit --fragment_duration,
+  // default the partial-segment grouping to --hls_part_target_duration so the
+  // emitted EXT-X-PART durations match the advertised PART-TARGET instead of
+  // producing one tiny partial segment per frame.
+  if (chunking_params.low_latency_hls_mode &&
+      chunking_params.subsegment_duration_in_seconds == 0) {
+    chunking_params.subsegment_duration_in_seconds =
+        absl::GetFlag(FLAGS_hls_part_target_duration);
+  }
+
   int num_key_providers = 0;
   EncryptionParams& encryption_params = packaging_params.encryption_params;
   if (absl::GetFlag(FLAGS_enable_widevine_encryption)) {

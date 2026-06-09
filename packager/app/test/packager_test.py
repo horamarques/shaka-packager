@@ -1230,6 +1230,32 @@ class PackagerFunctionalTest(PackagerAppTest):
         any('#EXT-X-PART' in c for c in playlists.values()),
         'LL-HLS partial segments should survive a cue-driven reinit.')
 
+  def testLowLatencyHlsPartsGroupedToPartTarget(self):
+    # Without an explicit --fragment_duration, LL-HLS should group partial
+    # segments to the advertised PART-TARGET instead of emitting one partial
+    # segment per frame. Audio has no key-frame (SAP) constraint, so parts
+    # group cleanly to ~0.5s rather than the ~0.023s per AAC frame.
+    self.assertPackageSuccess(
+        self._GetStreams(['audio'],
+                         output_format='mp4',
+                         segmented=True,
+                         hls=True,
+                         test_files=['bear-640x360.ts']),
+        self._GetFlags(
+            output_hls=True,
+            hls_playlist_type='LIVE',
+            low_latency_hls_mode=True,
+            segment_duration=2.0))
+    part_durations = []
+    for content in self._ReadMediaPlaylists().values():
+      for m in re.finditer(r'#EXT-X-PART:DURATION=([0-9.]+)', content):
+        part_durations.append(float(m.group(1)))
+    self.assertTrue(part_durations, 'Expected EXT-X-PART entries.')
+    # A per-frame partial segment would be ~0.023s; grouped parts are ~0.5s.
+    self.assertGreater(max(part_durations), 0.3,
+                       'Parts should be grouped to the part target, not '
+                       'emitted per frame: %r' % part_durations)
+
   def testScte35FromTransportStreamLowLatency(self):
     # End-to-end SCTE-35 from MPEG-TS input through to LL-HLS DATERANGE and
     # DASH EventStream. This requires an MPEG-TS asset whose PMT carries a CUEI

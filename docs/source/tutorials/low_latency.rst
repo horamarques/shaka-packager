@@ -154,7 +154,20 @@ Optional tuning
 
 ``--hls_part_target_duration`` (default ``0.5``) sets the target duration in
 seconds for each partial segment.  This value is written into
-``EXT-X-PART-INF:PART-TARGET`` and used to compute ``PART-HOLD-BACK``.
+``EXT-X-PART-INF:PART-TARGET`` and used to compute ``PART-HOLD-BACK``.  When
+``--fragment_duration`` is not set, it also drives how media samples are grouped
+into partial segments, so the emitted ``EXT-X-PART`` durations match the
+advertised ``PART-TARGET`` instead of producing one partial segment per frame.
+Set ``--fragment_duration`` explicitly to override the grouping.
+
+.. note::
+
+    Partial segments are still aligned to key frames when
+    ``--fragment_sap_aligned`` is enabled (the default).  To produce
+    sub-second partial segments, the input must have key frames at least as
+    frequent as the part target duration; otherwise parts will be as long as
+    the GOP.  Audio (which has no key-frame constraint) always groups cleanly
+    to the part target.
 
 Synopsis
 ========
