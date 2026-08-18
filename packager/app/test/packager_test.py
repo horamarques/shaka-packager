@@ -1332,6 +1332,46 @@ class PackagerFunctionalTest(PackagerAppTest):
     with open(self.mpd_output, 'r') as f:
       self.assertIn('urn:scte:scte35:2013:xml', f.read())
 
+  def testScte35FromEmsgMp4(self):
+    # End-to-end SCTE-35 carried in fMP4 'emsg' boxes -> HLS EXT-X-DATERANGE and
+    # DASH EventStream. The test asset embeds a version-1 emsg box with scheme
+    # urn:scte:scte35:2013:bin, a 30s event duration, and a fixed splice payload.
+    self.assertPackageSuccess(
+        self._GetStreams(['video'],
+                         output_format='mp4',
+                         segmented=True,
+                         hls=True,
+                         test_files=['bear-640x360-scte35-emsg.mp4']),
+        self._GetFlags(
+            output_hls=True,
+            output_dash=True,
+            hls_playlist_type='LIVE',
+            low_latency_hls_mode=True,
+            segment_duration=2.0))
+    playlists = self._ReadMediaPlaylists()
+    joined = '\n'.join(playlists.values())
+    # The emsg's raw splice payload and 30s duration must surface in DATERANGE.
+    self.assertIn('SCTE35-OUT=0xFC3011', joined)
+    self.assertIn('PLANNED-DURATION=30.000', joined)
+    with open(self.mpd_output, 'r') as f:
+      self.assertIn('urn:scte:scte35:2013:xml', f.read())
+
+  def testScte35DisabledByFlag(self):
+    # --enable_scte35=false must suppress SCTE-35 pass-through (no DATERANGE).
+    self.assertPackageSuccess(
+        self._GetStreams(['video'],
+                         output_format='mp4',
+                         segmented=True,
+                         hls=True,
+                         test_files=['bear-640x360-scte35-emsg.mp4']),
+        self._GetFlags(
+            output_hls=True,
+            hls_playlist_type='LIVE',
+            segment_duration=2.0) + ['--enable_scte35=false'])
+    self.assertFalse(
+        any('#EXT-X-DATERANGE' in c for c in self._ReadMediaPlaylists().values()),
+        '--enable_scte35=false should suppress EXT-X-DATERANGE.')
+
   def testAvcTsEventPlaylist(self):
     self.assertPackageSuccess(
         self._GetStreams(['audio', 'video'],

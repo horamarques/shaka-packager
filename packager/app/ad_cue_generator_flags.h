@@ -12,5 +12,6 @@
 #include <absl/flags/declare.h>
 
 ABSL_DECLARE_FLAG(std::string, ad_cues);
+ABSL_DECLARE_FLAG(bool, enable_scte35);
 
 #endif  // PACKAGER_APP_AD_CUE_GENERATOR_FLAGS_H_

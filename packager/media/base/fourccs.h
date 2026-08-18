@@ -75,6 +75,7 @@ enum FourCC : uint32_t {
   FOURCC_ec3d = 0x65633364,
   FOURCC_edts = 0x65647473,
   FOURCC_elst = 0x656c7374,
+  FOURCC_emsg = 0x656d7367,
   FOURCC_enca = 0x656e6361,
   FOURCC_encv = 0x656e6376,
   FOURCC_esds = 0x65736473,

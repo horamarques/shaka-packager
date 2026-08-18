@@ -408,6 +408,7 @@ std::optional<PackagingParams> GetPackagingParams() {
                    &ad_cue_generator_params.cue_points)) {
     return std::nullopt;
   }
+  packaging_params.enable_scte35 = absl::GetFlag(FLAGS_enable_scte35);
 
   ChunkingParams& chunking_params = packaging_params.chunking_params;
   chunking_params.segment_duration_in_seconds =

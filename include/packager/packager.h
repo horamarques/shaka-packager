@@ -58,6 +58,12 @@ struct PackagingParams {
   /// Out of band cuepoint parameters.
   AdCueGeneratorParams ad_cue_generator_params;
 
+  /// Enable pass-through of SCTE-35 splice markers detected in the input
+  /// (currently MPEG-TS via the CUEI descriptor) to the output manifests
+  /// (HLS EXT-X-DATERANGE / DASH EventStream). Enabled by default; set to
+  /// false to ignore in-band SCTE-35 signals. Does not affect --ad_cues.
+  bool enable_scte35 = true;
+
   /// Create a human readable format of MediaInfo. The output file name will be
   /// the name specified by output flag, suffixed with `.media_info`.
   bool output_media_info = false;

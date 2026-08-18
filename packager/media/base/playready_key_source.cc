@@ -221,18 +221,32 @@ Status PlayReadyKeySource::GetCryptoPeriodKey(
     int32_t crypto_period_duration_in_seconds,
     const std::string& stream_label,
     EncryptionKey* key) {
-  UNUSED(crypto_period_index);
   UNUSED(crypto_period_duration_in_seconds);
   UNUSED(stream_label);
-  // TODO(robinconnell): Implement key rotation. The PlayReady key source does
-  // not (yet) fetch a distinct key per crypto period, so every period reuses
-  // the same key. Warn once so this limitation is not silently mistaken for
-  // working key rotation; for rotating PlayReady keys use a key server that
-  // supports per-period key delivery.
-  LOG_FIRST_N(WARNING, 1)
-      << "PlayReady key rotation is not implemented; the same key will be used "
-         "for every crypto period.";
+  DCHECK(encryption_key_);
   *key = *encryption_key_;
+
+  // The offline PlayReady key source holds a single key, so real per-period
+  // keys are not available without a license server that supports per-period
+  // key delivery. For testing, derive a distinct key per crypto period using
+  // the same naive left-rotation as RawKeySource. This must NOT be used in
+  // production.
+  LOG_FIRST_N(WARNING, 1)
+      << "PlayReady is using a naive test-only key rotation algorithm; it must "
+         "not be used in production. Use a license server with per-period key "
+         "delivery for real PlayReady key rotation.";
+  if (!key->key_id.empty()) {
+    std::rotate(key->key_id.begin(),
+                key->key_id.begin() + (crypto_period_index % key->key_id.size()),
+                key->key_id.end());
+  }
+  if (!key->key.empty()) {
+    std::rotate(key->key.begin(),
+                key->key.begin() + (crypto_period_index % key->key.size()),
+                key->key.end());
+  }
+  key->key_ids.clear();
+  key->key_ids.emplace_back(key->key_id);
   return Status::OK;
 }
 

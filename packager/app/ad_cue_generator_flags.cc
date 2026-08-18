@@ -22,3 +22,12 @@ ABSL_FLAG(std::string,
           "{start_time}[,{duration}][;{start_time}[,{duration}]]..."
           "The start_time represents the start of the cue marker in "
           "seconds relative to the start of the program.");
+
+ABSL_FLAG(bool,
+          enable_scte35,
+          true,
+          "Pass through SCTE-35 splice markers detected in the input "
+          "(currently MPEG-TS via the CUEI descriptor) to the output "
+          "manifests (HLS EXT-X-DATERANGE / DASH EventStream). Enabled by "
+          "default; set to false to ignore in-band SCTE-35 signals. Does not "
+          "affect --ad_cues.");

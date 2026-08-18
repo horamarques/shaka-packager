@@ -27,6 +27,7 @@
 #include <packager/media/base/decryptor_source.h>
 #include <packager/media/base/fourccs.h>
 #include <packager/media/base/key_source.h>
+#include <packager/media/base/media_handler.h>
 #include <packager/media/base/media_sample.h>
 #include <packager/media/base/rcheck.h>
 #include <packager/media/base/stream_info.h>
@@ -464,12 +465,93 @@ bool MP4MediaParser::ParseBox(bool* err) {
     // (Since 'default-base-is-moof' is mandated, no data references can come
     // before the head of the 'moof', so keeping this box around is sufficient.)
     return !(*err);
+  } else if (reader->type() == FOURCC_emsg) {
+    *err = !ParseEmsg(reader.get());
   } else {
     VLOG(2) << "Skipping top-level box: " << FourCCToString(reader->type());
   }
 
   queue_.Pop(static_cast<int>(reader->size()));
   return !(*err);
+}
+
+bool MP4MediaParser::ParseEmsg(BoxReader* reader) {
+  // DASH Event Message box (ISO/IEC 23009-1 5.10.3.3). Only SCTE-35 schemes
+  // are surfaced to the cue pipeline; other event schemes are ignored.
+  if (!scte35_event_cb_)
+    return true;
+
+  uint32_t vflags = 0;
+  RCHECK(reader->Read4(&vflags));
+  const uint8_t version = static_cast<uint8_t>(vflags >> 24);
+
+  std::string scheme_id_uri;
+  std::string value;
+  uint32_t timescale = 0;
+  uint64_t presentation_time = 0;  // in |timescale| units
+  uint32_t event_duration = 0;
+  uint32_t id = 0;
+
+  auto read_cstring = [reader](std::string* out) -> bool {
+    out->clear();
+    uint8_t c = 0;
+    while (true) {
+      if (!reader->Read1(&c))
+        return false;
+      if (c == 0)
+        break;
+      out->push_back(static_cast<char>(c));
+    }
+    return true;
+  };
+
+  if (version == 0) {
+    uint32_t presentation_time_delta = 0;
+    RCHECK(read_cstring(&scheme_id_uri));
+    RCHECK(read_cstring(&value));
+    RCHECK(reader->Read4(&timescale));
+    RCHECK(reader->Read4(&presentation_time_delta));
+    RCHECK(reader->Read4(&event_duration));
+    RCHECK(reader->Read4(&id));
+    // v0 presentation_time_delta is relative to the segment's earliest
+    // presentation time, which is not available here; use it as a best effort.
+    presentation_time = presentation_time_delta;
+  } else if (version == 1) {
+    RCHECK(reader->Read4(&timescale));
+    RCHECK(reader->Read8(&presentation_time));
+    RCHECK(reader->Read4(&event_duration));
+    RCHECK(reader->Read4(&id));
+    RCHECK(read_cstring(&scheme_id_uri));
+    RCHECK(read_cstring(&value));
+  } else {
+    LOG(WARNING) << "Unsupported 'emsg' box version "
+                 << static_cast<int>(version) << "; ignoring.";
+    return true;
+  }
+
+  // SCTE-35 emsg schemes: urn:scte:scte35:2013:bin, :2014:xml+bin, etc.
+  if (scheme_id_uri.find("scte35") == std::string::npos) {
+    VLOG(2) << "Ignoring non-SCTE-35 'emsg' scheme: " << scheme_id_uri;
+    return true;
+  }
+
+  const size_t consumed = reader->pos();
+  const size_t total = reader->size();
+  std::vector<uint8_t> message_data;
+  if (total > consumed)
+    RCHECK(reader->ReadToVector(&message_data, total - consumed));
+
+  auto event = std::make_shared<Scte35Event>();
+  event->id = std::to_string(id);
+  if (timescale > 0) {
+    event->start_time_in_seconds =
+        static_cast<double>(presentation_time) / timescale;
+    event->duration_in_seconds =
+        static_cast<double>(event_duration) / timescale;
+  }
+  event->cue_data.assign(message_data.begin(), message_data.end());
+  scte35_event_cb_(std::move(event));
+  return true;
 }
 
 bool MP4MediaParser::ParseMoov(BoxReader* reader) {

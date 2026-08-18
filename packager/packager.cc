@@ -1031,23 +1031,30 @@ Status Packager::Initialize(
     internal->hls_notifier.reset(new hls::SimpleHlsNotifier(hls_params));
   }
 
-  // Create SyncPointQueue when ad_cues provided or when TS input
-  // might contain SCTE-35 events.
-  bool has_ts_input = false;
-  for (const auto& descriptor : stream_descriptors) {
-    const auto& input = descriptor.input;
-    if (input.size() >= 3 &&
-        (input.rfind(".ts") == input.size() - 3 ||
-         input.rfind(".m2t") == input.size() - 4 ||
-         input.rfind(".m2ts") == input.size() - 5)) {
-      has_ts_input = true;
-      break;
+  // Create SyncPointQueue when ad_cues provided or when the input might carry
+  // SCTE-35 (MPEG-TS via the CUEI PID, or fMP4 via 'emsg' boxes), unless
+  // SCTE-35 pass-through is disabled.
+  bool has_scte35_capable_input = false;
+  if (packaging_params.enable_scte35) {
+    auto has_suffix = [](const std::string& s, const std::string& suffix) {
+      return s.size() >= suffix.size() &&
+             s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0;
+    };
+    for (const auto& descriptor : stream_descriptors) {
+      const auto& input = descriptor.input;
+      if (has_suffix(input, ".ts") || has_suffix(input, ".m2t") ||
+          has_suffix(input, ".m2ts") || has_suffix(input, ".mp4") ||
+          has_suffix(input, ".m4s") || has_suffix(input, ".m4v") ||
+          has_suffix(input, ".cmfv") || has_suffix(input, ".cmfa")) {
+        has_scte35_capable_input = true;
+        break;
+      }
     }
   }
 
   std::unique_ptr<SyncPointQueue> sync_points;
   if (!packaging_params.ad_cue_generator_params.cue_points.empty() ||
-      has_ts_input) {
+      has_scte35_capable_input) {
     sync_points.reset(
         new SyncPointQueue(packaging_params.ad_cue_generator_params));
   }

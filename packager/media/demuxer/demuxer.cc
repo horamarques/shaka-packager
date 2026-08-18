@@ -242,7 +242,8 @@ Status Demuxer::InitializeParser() {
                 std::placeholders::_2),
       key_source_.get());
 
-  // Set up SCTE-35 callback if available (MPEG-TS only).
+  // Set up SCTE-35 callback if available. Supported for MPEG-TS (CUEI PID)
+  // and for fMP4 input carrying SCTE-35 'emsg' boxes.
   if (scte35_event_callback_) {
     auto* mp2t_parser = dynamic_cast<mp2t::Mp2tMediaParser*>(parser_.get());
     if (mp2t_parser) {
@@ -251,6 +252,13 @@ Status Demuxer::InitializeParser() {
                  std::shared_ptr<Scte35Event> event) -> bool {
             scte35_event_callback_(std::move(event));
             return true;
+          });
+    }
+    auto* mp4_parser = dynamic_cast<mp4::MP4MediaParser*>(parser_.get());
+    if (mp4_parser) {
+      mp4_parser->set_scte35_event_cb(
+          [this](std::shared_ptr<Scte35Event> event) {
+            scte35_event_callback_(std::move(event));
           });
     }
   }

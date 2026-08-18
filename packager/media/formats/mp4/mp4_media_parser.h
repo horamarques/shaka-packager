@@ -8,6 +8,7 @@
 #define PACKAGER_MEDIA_FORMATS_MP4_MP4_MEDIA_PARSER_H_
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -23,6 +24,9 @@ ABSL_DECLARE_FLAG(bool, use_dovi_supplemental_codecs);
 
 namespace shaka {
 namespace media {
+
+struct Scte35Event;
+
 namespace mp4 {
 
 class BoxReader;
@@ -53,10 +57,17 @@ class MP4MediaParser : public MediaParser {
   /// @return true if successful, false otherwise.
   bool LoadMoov(const std::string& file_path);
 
+  /// Callback invoked for each SCTE-35 event parsed from an 'emsg' box.
+  typedef std::function<void(std::shared_ptr<Scte35Event>)> Scte35EventCB;
+  void set_scte35_event_cb(const Scte35EventCB& cb) { scte35_event_cb_ = cb; }
+
  private:
   enum State { kWaitingForInit, kParsingBoxes, kEmittingSamples, kError };
 
   bool ParseBox(bool* err);
+  // Parses a DASH Event Message ('emsg') box and, if it carries SCTE-35,
+  // emits a Scte35Event via |scte35_event_cb_|.
+  bool ParseEmsg(mp4::BoxReader* reader);
   bool ParseMoov(mp4::BoxReader* reader);
   bool ParseMoof(mp4::BoxReader* reader);
 
@@ -82,6 +93,7 @@ class MP4MediaParser : public MediaParser {
   State state_;
   InitCB init_cb_;
   NewMediaSampleCB new_sample_cb_;
+  Scte35EventCB scte35_event_cb_;
   KeySource* decryption_key_source_;
   std::unique_ptr<DecryptorSource> decryptor_source_;
 
