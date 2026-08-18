@@ -4,10 +4,12 @@
 // license that can be found in the LICENSE file or at
 // https://developers.google.com/open-source/licenses/bsd
 
+#include <cstddef>
 #include <map>
 #include <memory>
 #include <string>
 
+#include <absl/base/thread_annotations.h>
 #include <absl/synchronization/mutex.h>
 
 #include <packager/ad_cue_generator_params.h>

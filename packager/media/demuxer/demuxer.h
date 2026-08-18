@@ -7,14 +7,18 @@
 #ifndef PACKAGER_MEDIA_BASE_DEMUXER_H_
 #define PACKAGER_MEDIA_BASE_DEMUXER_H_
 
+#include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <functional>
+#include <map>
 #include <memory>
+#include <string>
 #include <vector>
 
-#include <packager/macros/classes.h>
 #include <packager/media/base/container_names.h>
+#include <packager/media/base/media_handler.h>
+#include <packager/media/base/text_sample.h>
 #include <packager/media/origin/origin_handler.h>
 #include <packager/status.h>
 
