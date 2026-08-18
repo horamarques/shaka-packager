@@ -1332,6 +1332,71 @@ class PackagerFunctionalTest(PackagerAppTest):
     with open(self.mpd_output, 'r') as f:
       self.assertIn('urn:scte:scte35:2013:xml', f.read())
 
+  def testRedundantUdpInputSurvivesLegKill(self):
+    # End-to-end: packager consumes redundant://udp legs while the replay tool
+    # feeds bear-640x360.ts to both and kills leg 0 halfway. In merge mode the
+    # kill must be hitless: full-duration output, no TS discontinuities.
+    # Live UDP input never reaches EOF, so the packager runs as a subprocess
+    # and is terminated after the replay completes.
+    import socket as socket_module
+    ports = []
+    for _ in range(2):
+      probe = socket_module.socket(socket_module.AF_INET,
+                                   socket_module.SOCK_DGRAM)
+      probe.bind(('127.0.0.1', 0))
+      ports.append(probe.getsockname()[1])
+      probe.close()
+
+    url = ('redundant://udp://127.0.0.1:%d?timeout=100000'
+           '|udp://127.0.0.1:%d?timeout=100000') % (ports[0], ports[1])
+    stream = ('input=%s,stream=video,init_segment=%s/video_init.mp4,'
+              'segment_template=%s/video_$Number$.m4s,'
+              'playlist_name=video.m3u8') % (url, self.tmp_dir, self.tmp_dir)
+    cmd = [
+        test_env.PACKAGER_BIN, stream,
+        '--hls_master_playlist_output', self.hls_master_playlist_output,
+        '--hls_playlist_type', 'LIVE',
+        '--segment_duration', '1',
+        '--test_packager_version', '<tag>-<hash>-<test>',
+    ]
+    packager_process = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                        stderr=subprocess.PIPE)
+    try:
+      replay_tool = os.path.join(test_env.SRC_DIR, 'packager', 'tools',
+                                 'redundant_ts', 'replay_ts.py')
+      ts_file = os.path.join(self.test_data_dir, 'bear-640x360.ts')
+      # Give the (debug-build) packager time to boot and bind its leg
+      # sockets before the replay starts, or the head of the stream is lost.
+      import time as time_module
+      time_module.sleep(2)
+      # ~1s replay of the 2.7s clip; kill leg 0 at 50%.
+      subprocess.check_call([
+          'python3', replay_tool, ts_file,
+          '--ports', str(ports[0]), str(ports[1]),
+          '--pps', '300', '--kill', '0:0.5',
+      ])
+      # Let the packager drain and write the last segment.
+      import time as time_module
+      time_module.sleep(2)
+    finally:
+      packager_process.terminate()
+      _, stderr = packager_process.communicate(timeout=30)
+
+    playlist_path = os.path.join(self.tmp_dir, 'video.m3u8')
+    self.assertTrue(os.path.exists(playlist_path),
+                    'no media playlist produced; stderr:\n%s' %
+                    stderr.decode('utf8', 'replace'))
+    with open(playlist_path) as f:
+      playlist = f.read()
+    durations = [float(m) for m in re.findall(r'#EXTINF:([0-9.]+),', playlist)]
+    # bear-640x360.ts is ~2.7s; require most of it despite the leg kill.
+    self.assertGreater(sum(durations), 2.0,
+                       'output too short - leg kill was not hitless:\n%s' %
+                       playlist)
+    self.assertNotIn(b'TS discontinuity', stderr,
+                     'merge mode must heal a single-leg kill without '
+                     'discontinuities')
+
   def testScte35FromEmsgMp4(self):
     # End-to-end SCTE-35 carried in fMP4 'emsg' boxes -> HLS EXT-X-DATERANGE and
     # DASH EventStream. The test asset embeds a version-1 emsg box with scheme
