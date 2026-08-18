@@ -28,6 +28,8 @@ const size_t kReadChunkSize = 65536;
 // Injected when a leg has no explicit timeout so reader threads wake up to
 // drive health ticks and honor shutdown.
 const char kDefaultTimeoutOption[] = "timeout=100000";
+// Stats summary period.
+const int64_t kStatsLogPeriodMs = 60000;
 
 int64_t NowMs() {
   return std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -165,7 +167,34 @@ void RedundantUdpFile::ReaderThread(size_t leg_index) {
       // fails over even when only this thread is awake.
       merger_->OnTick(now);
     }
+    MaybeLogStats(now);
   }
+}
+
+void RedundantUdpFile::MaybeLogStats(int64_t now_ms) {
+  // Called with merger_mutex_ held.
+  if (now_ms - last_stats_log_ms_ < kStatsLogPeriodMs)
+    return;
+  const bool first = last_stats_log_ms_ == 0;
+  last_stats_log_ms_ = now_ms;
+  if (first)
+    return;  // Skip the incomplete first period.
+  for (size_t i = 0; i < config_.num_legs; ++i) {
+    const RedundantInputMerger::LegStats stats = merger_->GetLegStats(i);
+    LOG(INFO) << "redundant_input: leg=" << i << " pkts=" << stats.packets
+              << " dropped_dup=" << stats.dropped_dup
+              << " resyncs=" << stats.resyncs
+              << " cc_errors=" << stats.cc_errors << " state="
+              << (stats.state == RedundantInputMerger::LegState::kHealthy
+                      ? "HEALTHY"
+                      : "UNHEALTHY")
+              << " active="
+              << (merger_->active_leg() == i ? "yes" : "no");
+  }
+  LOG(INFO) << "redundant_input: switches=" << merger_->switches()
+            << " emitted_cc_errors=" << merger_->emitted_cc_errors()
+            << " max_skew_ms=" << merger_->max_skew_ms()
+            << " window_evictions=" << merger_->window_evictions();
 }
 
 bool RedundantUdpFile::Close() {

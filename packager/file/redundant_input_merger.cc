@@ -134,11 +134,15 @@ void RedundantInputMerger::HandlePacket(size_t leg_index,
   const uint64_t hash = HashPacket(packet);
   if (config_.mode == Mode::kMerge) {
     EvictDedupWindow();
-    if (window_set_.count(hash) != 0) {
+    auto it = window_set_.find(hash);
+    if (it != window_set_.end()) {
       ++leg.stats.dropped_dup;
+      const int64_t skew = now_ms_ - it->second;
+      if (skew > max_skew_ms_)
+        max_skew_ms_ = skew;
       return;
     }
-    window_set_.insert(hash);
+    window_set_.emplace(hash, now_ms_);
     window_fifo_.push_back({hash, now_ms_});
     Emit(packet, hash);
     return;
@@ -199,6 +203,12 @@ void RedundantInputMerger::EvictDedupWindow() {
   while (!window_fifo_.empty() &&
          (window_fifo_.size() >= config_.dedup_window_pkts ||
           window_fifo_.front().time_ms < now_ms_ - config_.dedup_window_ms)) {
+    // Count only count-bound evictions: entries pushed out while still
+    // inside the time window signal an undersized dedup_window_pkts.
+    if (window_fifo_.size() >= config_.dedup_window_pkts &&
+        window_fifo_.front().time_ms >= now_ms_ - config_.dedup_window_ms) {
+      ++window_evictions_;
+    }
     window_set_.erase(window_fifo_.front().hash);
     window_fifo_.pop_front();
   }

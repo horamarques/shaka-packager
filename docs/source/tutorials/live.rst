@@ -60,8 +60,33 @@ Here are some examples.
       2. Upload / Sync media segments
       3. Rename uploaded manifest / playlists back to the original names
 
+
+Redundant input (SMPTE 2022-7 style)
+------------------------------------
+
+For live TV channels fed over unreliable networks, the ``redundant://`` input
+scheme consumes the *same multiplex* from two (or more) UDP legs delivered
+over diverse paths and merges them into a single uninterrupted stream. In the
+default ``merge`` mode the merge is hitless: each TS packet is emitted from
+whichever leg delivers it first and duplicates are dropped, so the loss or
+death of either leg does not disturb the output at all.
+
+Example — dual multicast legs on separate interfaces::
+
+    packager \
+      'input=redundant://udp://239.1.1.1:5000?interface=10.0.0.1|udp://239.2.2.2:5000?interface=10.0.1.1,stream=video,init_segment=video_init.mp4,segment_template=video_$Number$.m4s' \
+      ...
+
+Use ``mode=failover`` instead when the legs are not guaranteed to be
+bit-identical (e.g. separate encoder outputs); the packager then emits a
+single active leg and switches on failure, which may introduce a short gap at
+the switch point. In both modes a lost packet no longer kills the pipeline:
+the TS demuxer drops the damaged access unit, resynchronizes on the next
+unit start, and continues.
+
 Configuration options
 ---------------------
 
 .. include:: /options/udp_file_options.rst
+.. include:: /options/redundant_input_options.rst
 .. include:: /options/segment_template_formatting.rst

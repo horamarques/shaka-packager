@@ -89,6 +89,13 @@ class RedundantInputMerger {
   size_t active_leg() const { return active_leg_; }
   /// Continuity-counter errors observed across the EMITTED stream.
   uint64_t emitted_cc_errors() const { return emitted_cc_errors_; }
+  /// Largest observed arrival skew between duplicate copies of a packet
+  /// across legs (merge mode), in ms. A value approaching dedup_window_ms
+  /// means the window is too small for the network path difference.
+  int64_t max_skew_ms() const { return max_skew_ms_; }
+  /// Dedup-window entries evicted by the packet-count bound (a growing value
+  /// means dedup_window_pkts is undersized for the stream bitrate).
+  uint64_t window_evictions() const { return window_evictions_; }
 
  private:
   // Per-PID continuity-counter tracking state (last CC value per PID).
@@ -142,10 +149,13 @@ class RedundantInputMerger {
   int64_t now_ms_ = 0;
   bool time_initialized_ = false;
 
-  // Merge-mode dedup window: set for O(1) lookup plus FIFO for eviction by
-  // age and count. Only unseen hashes are inserted, so the two stay 1:1.
-  std::unordered_set<uint64_t> window_set_;
+  // Merge-mode dedup window: hash -> insert time for O(1) lookup (and skew
+  // measurement on duplicate hits) plus FIFO for eviction by age and count.
+  // Only unseen hashes are inserted, so the two stay 1:1.
+  std::unordered_map<uint64_t, int64_t> window_set_;
   std::deque<HashedEntry> window_fifo_;
+  int64_t max_skew_ms_ = 0;
+  uint64_t window_evictions_ = 0;
 
   // Failover mode.
   size_t active_leg_ = 0;

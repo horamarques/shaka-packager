@@ -67,6 +67,8 @@ class RedundantUdpFile : public File {
 
  private:
   void ReaderThread(size_t leg_index);
+  // Logs per-leg and global merger counters once per minute (mutex held).
+  void MaybeLogStats(int64_t now_ms);
 
   std::vector<std::string> leg_urls_;
   RedundantInputMerger::Config config_;
@@ -79,6 +81,9 @@ class RedundantUdpFile : public File {
   std::unique_ptr<RedundantInputMerger> merger_;
 
   std::vector<File*> legs_;  // Owned; closed in Close().
+  // Last time the per-minute stats summary was logged (guarded by
+  // merger_mutex_).
+  int64_t last_stats_log_ms_ = 0;
   std::vector<std::thread> threads_;
   std::atomic<bool> stop_{false};
 
