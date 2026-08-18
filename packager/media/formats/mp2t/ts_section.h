@@ -36,6 +36,12 @@ class TsSection {
 
   // Reset the state of the parser to its initial state.
   virtual void Reset() = 0;
+
+  // Drop the PES packet/section being parsed and ignore any further incoming
+  // data until the next unit start. Unlike Reset, other parser state (e.g.
+  // timestamp unrolling) is preserved. Used to recover from a transport
+  // stream discontinuity.
+  virtual void Abort() = 0;
 };
 
 }  // namespace mp2t

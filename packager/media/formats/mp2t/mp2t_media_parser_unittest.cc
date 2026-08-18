@@ -177,6 +177,64 @@ TEST_F(Mp2tMediaParserTest, UnalignedAppend512_H265) {
   EXPECT_EQ(82, video_frame_count_);
 }
 
+TEST_F(Mp2tMediaParserTest, ContinuityCounterDiscontinuityNonFatal) {
+  // A gap in the TS packet sequence (e.g. lost UDP packets on a live input)
+  // must not be a fatal parse error: the damaged access unit is dropped and
+  // parsing continues at the next payload unit start.
+  const size_t kTsPacketSize = 188;
+  const size_t kDroppedPackets = 3;
+
+  std::vector<uint8_t> buffer = ReadTestDataFile("bear-640x360.ts");
+  ASSERT_FALSE(buffer.empty());
+  ASSERT_EQ(0u, buffer.size() % kTsPacketSize);
+
+  // Reference parse of the intact file.
+  InitializeParser();
+  ASSERT_TRUE(AppendData(buffer.data(), buffer.size()));
+  ASSERT_TRUE(parser_->Flush());
+  const int intact_video_frame_count = video_frame_count_;
+  EXPECT_EQ(82, intact_video_frame_count);
+
+  // Drop kDroppedPackets consecutive TS packets from the middle of the
+  // file, starting at a packet on a PES PID without
+  // payload_unit_start_indicator, so an in-flight PES packet is damaged.
+  const size_t num_packets = buffer.size() / kTsPacketSize;
+  size_t drop_start = 0;
+  for (size_t i = num_packets / 2; i + kDroppedPackets < num_packets; ++i) {
+    const uint8_t* packet = &buffer[i * kTsPacketSize];
+    const int pid = ((packet[1] & 0x1f) << 8) | packet[2];
+    const bool payload_unit_start_indicator = (packet[1] & 0x40) != 0;
+    // PIDs below 0x20 are reserved for PSI (PAT, CAT, ...).
+    if (pid >= 0x20 && !payload_unit_start_indicator) {
+      drop_start = i;
+      break;
+    }
+  }
+  ASSERT_GT(drop_start, 0u);
+  std::vector<uint8_t> mutilated(buffer);
+  mutilated.erase(
+      mutilated.begin() + drop_start * kTsPacketSize,
+      mutilated.begin() + (drop_start + kDroppedPackets) * kTsPacketSize);
+
+  // Reset the fixture state and parse the mutilated buffer.
+  parser_.reset(new Mp2tMediaParser());
+  stream_map_.clear();
+  audio_frame_count_ = 0;
+  video_frame_count_ = 0;
+  video_min_dts_ = kNoTimestamp;
+  video_max_dts_ = kNoTimestamp;
+  video_min_pts_ = kNoTimestamp;
+  video_max_pts_ = kNoTimestamp;
+
+  InitializeParser();
+  EXPECT_TRUE(AppendData(mutilated.data(), mutilated.size()));
+  EXPECT_TRUE(parser_->Flush());
+  // Parsing survives the gap and still emits samples; the intact file never
+  // yields fewer frames than the mutilated one.
+  EXPECT_GT(video_frame_count_, 0);
+  EXPECT_LE(video_frame_count_, intact_video_frame_count);
+}
+
 TEST_F(Mp2tMediaParserTest, TimestampWrapAround) {
   // "bear-640x360_ptszero_dtswraparound.ts" has been transcoded from
   // bear-640x360.mp4 by applying a time offset of 95442s (close to 2^33 /

@@ -29,6 +29,7 @@ class TsSectionPes : public TsSection {
              int size) override;
   bool Flush() override;
   void Reset() override;
+  void Abort() override;
 
  private:
   // Emit a reassembled PES packet.

@@ -29,6 +29,7 @@ class TsSectionPsi : public TsSection {
              int size) override;
   bool Flush() override;
   void Reset() override;
+  void Abort() override;
 
   // Parse the content of the PSI section.
   virtual bool ParsePsiSection(BitReader* bit_reader) = 0;

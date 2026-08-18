@@ -151,6 +151,10 @@ void TsSectionPes::Reset() {
   es_parser_->Reset();
 }
 
+void TsSectionPes::Abort() {
+  ResetPesState();
+}
+
 bool TsSectionPes::Emit(bool emit_for_unknown_size) {
   int raw_pes_size;
   const uint8_t* raw_pes;

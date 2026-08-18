@@ -116,14 +116,25 @@ bool PidState::PushTsPacket(const TsPacket& ts_packet) {
   // just discard the incoming TS packet.
   if (!enable_)
     return true;
-  // TODO(bzd): continuity_counter_ is never set
+  // A packet is continuous if its continuity counter is one more than the
+  // previous packet, or the same (duplicate packets and packets without a
+  // payload do not increment the counter), or if the discontinuity is
+  // explicitly signaled in the adaptation field.
   int expected_continuity_counter = (continuity_counter_ + 1) % 16;
-  if (continuity_counter_ >= 0 &&
-      ts_packet.continuity_counter() != expected_continuity_counter) {
-    LOG(ERROR) << "TS discontinuity detected for pid: " << pid_;
-    // TODO(tinskip): Handle discontinuity better.
-    return false;
+  if (continuity_counter_ >= 0 && !ts_packet.discontinuity_indicator() &&
+      ts_packet.continuity_counter() != expected_continuity_counter &&
+      ts_packet.continuity_counter() != continuity_counter_) {
+    LOG(WARNING) << "TS discontinuity detected for pid: " << pid_
+                 << ", expected CC: " << expected_continuity_counter
+                 << ", received CC: " << ts_packet.continuity_counter();
+    // Drop the in-flight PES packet/section so it is not emitted with a
+    // hole. The section parser then ignores packets until the next
+    // payload_unit_start_indicator, so the current packet is only consumed
+    // if a new PES packet/section starts in it. This makes packet loss on
+    // live (e.g. UDP) inputs non-fatal.
+    section_parser_->Abort();
   }
+  continuity_counter_ = ts_packet.continuity_counter();
 
   bool status =
       section_parser_->Parse(ts_packet.payload_unit_start_indicator(),

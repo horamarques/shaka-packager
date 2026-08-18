@@ -126,6 +126,10 @@ void TsSectionPsi::Reset() {
   ResetPsiState();
 }
 
+void TsSectionPsi::Abort() {
+  ResetPsiState();
+}
+
 void TsSectionPsi::ResetPsiState() {
   wait_for_pusi_ = true;
   psi_byte_queue_.Reset();
