@@ -33,6 +33,7 @@
 #include <packager/file/local_file.h>
 #include <packager/file/memory_file.h>
 #include <packager/file/threaded_io_file.h>
+#include <packager/file/redundant_udp_file.h>
 #include <packager/file/udp_file.h>
 #include <packager/macros/logging.h>
 
@@ -52,6 +53,7 @@ const char* kCallbackFilePrefix = "callback://";
 const char* kLocalFilePrefix = "file://";
 const char* kMemoryFilePrefix = "memory://";
 const char* kUdpFilePrefix = "udp://";
+const char* kRedundantFilePrefix = "redundant://";
 const char* kHttpFilePrefix = "http://";
 const char* kHttpsFilePrefix = "https://";
 
@@ -122,6 +124,14 @@ File* CreateUdpFile(const char* file_name, const char* mode) {
   return new UdpFile(file_name);
 }
 
+File* CreateRedundantUdpFile(const char* file_name, const char* mode) {
+  if (strcmp(mode, "r")) {
+    NOTIMPLEMENTED() << "RedundantUdpFile only supports read (receive) mode.";
+    return NULL;
+  }
+  return new RedundantUdpFile(file_name);
+}
+
 File* CreateHttpsFile(const char* file_name, const char* mode) {
   HttpMethod method = HttpMethod::kGet;
   if (strcmp(mode, "r") != 0) {
@@ -162,6 +172,7 @@ static const FileTypeInfo kFileTypeInfo[] = {
         &WriteLocalFileAtomically,
     },
     {kUdpFilePrefix, &CreateUdpFile, nullptr, nullptr},
+    {kRedundantFilePrefix, &CreateRedundantUdpFile, nullptr, nullptr},
     {kMemoryFilePrefix, &CreateMemoryFile, &DeleteMemoryFile, nullptr},
     {kCallbackFilePrefix, &CreateCallbackFile, nullptr, nullptr},
     {kHttpFilePrefix, &CreateHttpFile, &DeleteHttpFile, nullptr},
@@ -195,8 +206,14 @@ File* File::Create(const char* file_name, const char* mode) {
 
   std::string_view file_type_prefix = GetFileTypePrefix(file_name);
   if (file_type_prefix == kMemoryFilePrefix ||
-      file_type_prefix == kCallbackFilePrefix) {
-    // Disable caching for memory and callback files.
+      file_type_prefix == kCallbackFilePrefix ||
+      file_type_prefix == kRedundantFilePrefix) {
+    // Disable caching for memory and callback files. RedundantUdpFile
+    // self-buffers (its own reader threads and IoCache); wrapping it in
+    // ThreadedIoFile would add a redundant cache and, worse, deadlock on
+    // mid-stream Close: the wrapper joins its reader task before closing
+    // the internal file, but for a live source that task only unblocks
+    // when the internal file is closed.
     return internal_file.release();
   }
 

@@ -13,6 +13,7 @@ add_library(file STATIC
     local_file.cc
     memory_file.cc
     redundant_input_merger.cc
+    redundant_udp_file.cc
     thread_pool.cc
     threaded_io_file.cc
     udp_file.cc
@@ -48,6 +49,7 @@ add_executable(file_unittest
     io_cache_unittest.cc
     memory_file_unittest.cc
     redundant_input_merger_unittest.cc
+    redundant_udp_file_unittest.cc
     udp_options_unittest.cc)
 target_link_libraries(file_unittest
     absl::check
