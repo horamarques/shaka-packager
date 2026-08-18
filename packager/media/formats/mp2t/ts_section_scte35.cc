@@ -6,6 +6,8 @@
 
 #include <packager/media/formats/mp2t/ts_section_scte35.h>
 
+#include <algorithm>
+
 #include <absl/log/log.h>
 
 #include <packager/media/base/bit_reader.h>
@@ -137,10 +139,14 @@ bool TsSectionScte35::ParsePsiSection(BitReader* bit_reader) {
                                      &event));
     }
 
-    // Store raw section data for downstream pass-through (e.g., base64 for
-    // HLS EXT-X-DATERANGE SCTE35-CMD attribute).
+    // Store raw section data for downstream pass-through (e.g., hex for HLS
+    // EXT-X-DATERANGE SCTE35-OUT/-IN). Trim to the actual section size
+    // (3-byte header + section_length) so TS stuffing bytes that may follow
+    // the section in the packet payload are not included.
+    const size_t raw_size = std::min(
+        section_size, static_cast<size_t>(3 + section_length));
     event.cue_data.assign(reinterpret_cast<const char*>(section_data),
-                          section_size);
+                          raw_size);
 
     DVLOG(1) << "SCTE-35 event: id=" << event.id
              << " type=" << event.type

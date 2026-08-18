@@ -543,6 +543,20 @@ bool Mp2tMediaParser::EmitRemainingSamples() {
   if (!is_initialized_)
     return true;
 
+  // Emit SCTE-35 events BEFORE any media/text samples. Splice sections are
+  // sent in-stream ahead of their splice point (preroll) precisely so that
+  // downstream can prepare; if samples at or past the splice time reach the
+  // cue-alignment handler first, the dynamically added cue point can no
+  // longer be promoted and the cue is silently dropped.
+  for (const auto& pid_pair : pids_) {
+    if (new_scte35_event_cb_) {
+      for (auto event : pid_pair.second->scte35_event_queue_) {
+        RCHECK(new_scte35_event_cb_(pid_pair.first, event));
+      }
+    }
+    pid_pair.second->scte35_event_queue_.clear();
+  }
+
   // Buffer emission.
   for (const auto& pid_pair : pids_) {
     for (auto sample : pid_pair.second->media_sample_queue_) {
@@ -562,14 +576,6 @@ bool Mp2tMediaParser::EmitRemainingSamples() {
       RCHECK(result);
     }
     pid_pair.second->text_sample_queue_.clear();
-
-    // Emit SCTE-35 events via the optional callback.
-    if (new_scte35_event_cb_) {
-      for (auto event : pid_pair.second->scte35_event_queue_) {
-        RCHECK(new_scte35_event_cb_(pid_pair.first, event));
-      }
-    }
-    pid_pair.second->scte35_event_queue_.clear();
   }
 
   return true;
