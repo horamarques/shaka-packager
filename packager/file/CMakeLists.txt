@@ -12,6 +12,7 @@ add_library(file STATIC
     io_cache.cc
     local_file.cc
     memory_file.cc
+    redundant_input_merger.cc
     thread_pool.cc
     threaded_io_file.cc
     udp_file.cc
@@ -46,6 +47,7 @@ add_executable(file_unittest
     http_file_unittest.cc
     io_cache_unittest.cc
     memory_file_unittest.cc
+    redundant_input_merger_unittest.cc
     udp_options_unittest.cc)
 target_link_libraries(file_unittest
     absl::check
