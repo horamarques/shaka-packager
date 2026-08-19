@@ -61,6 +61,7 @@
 #include <packager/media/trick_play/trick_play_handler.h>
 #include <packager/metrics/metrics_service.h>
 #include <packager/mpd/base/media_info.pb.h>
+#include <packager/mpd/base/mpd_stats_collector.h>
 #include <packager/mpd/base/simple_mpd_notifier.h>
 #include <packager/status.h>
 #include <packager/utils/clock.h>
@@ -956,6 +957,9 @@ struct Packager::PackagerInternal {
   std::shared_ptr<media::FakeClock> fake_clock;
   std::unique_ptr<KeySource> encryption_key_source;
   std::unique_ptr<MpdNotifier> mpd_notifier;
+  // Declared after mpd_notifier: destroyed first, and the exposer is
+  // stopped in ~Packager before either goes away.
+  std::shared_ptr<MpdStatsCollector> mpd_stats_collector;
   std::unique_ptr<hls::HlsNotifier> hls_notifier;
   BufferCallbackParams buffer_callback_params;
   std::unique_ptr<media::JobManager> job_manager;
@@ -1055,6 +1059,10 @@ Status Packager::Initialize(
       return Status(error::INVALID_ARGUMENT,
                     "Failed to initialize MpdNotifier.");
     }
+    internal->mpd_stats_collector = std::make_shared<MpdStatsCollector>(
+        static_cast<SimpleMpdNotifier*>(internal->mpd_notifier.get()));
+    MetricsService::Instance().RegisterCollectable(
+        internal->mpd_stats_collector);
   }
 
   if (!hls_params.master_playlist_output.empty()) {

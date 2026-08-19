@@ -161,6 +161,13 @@ class Representation {
   bool GetStartAndEndTimestamps(double* start_timestamp_seconds,
                                 double* end_timestamp_seconds) const;
 
+  /// @return The current live (dynamic MPD) window depth in seconds; 0
+  ///         before any segment is added.
+  double GetLiveBufferDepthSeconds() const;
+
+  /// @return The measured output bandwidth estimate in bits per second.
+  uint64_t GetEstimatedBandwidthBps() const;
+
   /// @return ID number for <Representation>.
   uint32_t id() const { return id_; }
 

@@ -15,6 +15,8 @@
 
 #include <absl/log/check.h>
 #include <absl/log/log.h>
+#include <absl/strings/str_cat.h>
+#include <prometheus/counter.h>
 
 #include <packager/macros/compiler.h>
 #include <packager/media/base/fourccs.h>
@@ -22,12 +24,36 @@
 #include <packager/media/base/stream_info.h>
 #include <packager/media/event/event_info.h>
 #include <packager/media/event/muxer_listener_internal.h>
+#include <packager/metrics/metrics_service.h>
 #include <packager/mpd/base/media_info.pb.h>
 #include <packager/mpd/base/mpd_notifier.h>
 #include <packager/mpd/base/mpd_options.h>
 
 namespace shaka {
 namespace media {
+namespace {
+
+// Tallies live per-segment manifest writes; failures are the discarded
+// bool returns of NotifyNewSegment/Flush.
+void CountManifestWrite(uint32_t representation_id, bool ok) {
+  static auto& writes =
+      prometheus::BuildCounter()
+          .Name("shaka_manifest_writes_total")
+          .Help("Live manifest update attempts, per representation.")
+          .Register(MetricsService::Instance().registry());
+  static auto& failures =
+      prometheus::BuildCounter()
+          .Name("shaka_manifest_write_failures_total")
+          .Help("Failed live manifest updates, per representation.")
+          .Register(MetricsService::Instance().registry());
+  const prometheus::Labels labels{
+      {"representation", absl::StrCat(representation_id)}};
+  writes.Add(labels).Increment();
+  if (!ok)
+    failures.Add(labels).Increment();
+}
+
+}  // namespace
 
 MpdNotifyMuxerListener::MpdNotifyMuxerListener(MpdNotifier* mpd_notifier)
     : mpd_notifier_(mpd_notifier), is_encrypted_(false) {
@@ -217,11 +243,13 @@ void MpdNotifyMuxerListener::OnNewSegment(const std::string& file_name,
                                           int64_t segment_number) {
   UNUSED(file_name);
   if (mpd_notifier_->dash_profile() == DashProfile::kLive) {
-    mpd_notifier_->NotifyNewSegment(notification_id_.value(), start_time,
-                                    duration, segment_file_size,
-                                    segment_number);
+    const bool notified = mpd_notifier_->NotifyNewSegment(
+        notification_id_.value(), start_time, duration, segment_file_size,
+        segment_number);
+    bool flushed = true;
     if (mpd_notifier_->mpd_type() == MpdType::kDynamic)
-      mpd_notifier_->Flush();
+      flushed = mpd_notifier_->Flush();
+    CountManifestWrite(notification_id_.value(), notified && flushed);
   } else {
     EventInfo event_info;
     event_info.type = EventInfoType::kSegment;

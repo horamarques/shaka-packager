@@ -26,6 +26,8 @@ add_library(mpd_builder STATIC
   base/mpd_notifier_util.h
   base/mpd_notifier.h
   base/mpd_options.h
+  base/mpd_stats_collector.cc
+  base/mpd_stats_collector.h
   base/mpd_utils.cc
   base/mpd_utils.h
   base/period.cc
@@ -49,6 +51,7 @@ target_link_libraries(mpd_builder
   LibXml2
   manifest_base
   media_base
+  metrics
   mpd_media_info_proto
   utils_clock
   libcurl

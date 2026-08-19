@@ -384,6 +384,17 @@ bool Representation::GetStartAndEndTimestamps(
   return true;
 }
 
+double Representation::GetLiveBufferDepthSeconds() const {
+  const int32_t time_scale = GetTimeScale(media_info_);
+  if (time_scale <= 0)
+    return 0;
+  return static_cast<double>(current_buffer_depth_) / time_scale;
+}
+
+uint64_t Representation::GetEstimatedBandwidthBps() const {
+  return bandwidth_estimator_.Estimate();
+}
+
 bool Representation::HasRequiredMediaInfoFields() const {
   if (HasVODOnlyFields(media_info_) && HasLiveOnlyFields(media_info_)) {
     LOG(ERROR) << "MediaInfo cannot have both VOD and Live fields.";

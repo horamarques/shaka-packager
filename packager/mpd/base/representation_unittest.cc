@@ -419,6 +419,35 @@ TEST_F(RepresentationTest, CheckRepresentationId) {
               AttributeEqual("id", std::to_string(kRepresentationId)));
 }
 
+TEST_F(RepresentationTest, LiveStatsGetters) {
+  const char kTestMediaInfo[] =
+      "video_info {\n"
+      "  codec: 'avc1'\n"
+      "  width: 720\n"
+      "  height: 480\n"
+      "  time_scale: 90000\n"
+      "  frame_duration: 3600\n"
+      "  pixel_width: 1\n"
+      "  pixel_height: 1\n"
+      "}\n"
+      "reference_time_scale: 90000\n"
+      "container_type: 1\n";
+
+  auto representation = CreateRepresentation(
+      ConvertToMediaInfo(kTestMediaInfo), kAnyRepresentationId, NoListener());
+  ASSERT_TRUE(representation->Init());
+
+  EXPECT_DOUBLE_EQ(0.0, representation->GetLiveBufferDepthSeconds());
+
+  // Two 2-second segments at 90kHz, 1 MB each.
+  representation->AddNewSegment(0, 180000, 1000000, 1);
+  representation->AddNewSegment(180000, 180000, 1000000, 2);
+
+  EXPECT_DOUBLE_EQ(4.0, representation->GetLiveBufferDepthSeconds());
+  // 2 MB over 4 s = 4 Mbit/s.
+  EXPECT_EQ(4000000u, representation->GetEstimatedBandwidthBps());
+}
+
 namespace {
 
 // Any number for {AdaptationSet,Representation} ID. Required to create

@@ -246,4 +246,17 @@ bool SimpleMpdNotifier::Flush() {
   return WriteMpdToFile(output_path_, mpd_builder_.get());
 }
 
+std::vector<SimpleMpdNotifier::RepresentationLiveStats>
+SimpleMpdNotifier::GetLiveStats() {
+  absl::MutexLock lock(lock_);
+  std::vector<RepresentationLiveStats> stats;
+  stats.reserve(representation_map_.size());
+  for (const auto& entry : representation_map_) {
+    stats.push_back({entry.first,
+                     entry.second->GetLiveBufferDepthSeconds(),
+                     entry.second->GetEstimatedBandwidthBps()});
+  }
+  return stats;
+}
+
 }  // namespace shaka

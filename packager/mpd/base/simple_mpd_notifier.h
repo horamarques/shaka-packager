@@ -67,6 +67,14 @@ class SimpleMpdNotifier : public MpdNotifier {
   bool Flush() override;
   /// @}
 
+  /// Point-in-time live stats per representation, for metrics export.
+  struct RepresentationLiveStats {
+    uint32_t id;
+    double buffer_depth_seconds;
+    uint64_t bandwidth_bps;
+  };
+  std::vector<RepresentationLiveStats> GetLiveStats();
+
  private:
   SimpleMpdNotifier(const SimpleMpdNotifier&) = delete;
   SimpleMpdNotifier& operator=(const SimpleMpdNotifier&) = delete;
