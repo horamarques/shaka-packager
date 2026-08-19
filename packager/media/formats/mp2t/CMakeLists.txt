@@ -62,11 +62,13 @@ add_library(mp2t STATIC
 
 target_link_libraries(mp2t
   absl::log
+  absl::strings
   dvb
   media_base
   media_codecs
   media_crypto
   hex_parser
+  metrics
 )
 
 add_executable(mp2t_unittest
@@ -76,6 +78,7 @@ es_parser_h264_unittest.cc
 es_parser_h26x_unittest.cc
 es_parser_teletext_unittest.cc
 mp2t_media_parser_unittest.cc
+mp2t_metrics_unittest.cc
 mpeg1_header_unittest.cc
 pes_packet_generator_unittest.cc
 program_map_table_writer_unittest.cc

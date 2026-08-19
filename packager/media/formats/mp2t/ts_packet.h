@@ -39,6 +39,7 @@ class TsPacket {
   int continuity_counter() const { return continuity_counter_; }
   bool discontinuity_indicator() const { return discontinuity_indicator_; }
   bool random_access_indicator() const { return random_access_indicator_; }
+  bool transport_error_indicator() const { return transport_error_indicator_; }
 
   // Return the offset and the size of the payload.
   const uint8_t* payload() const { return payload_; }
@@ -58,6 +59,7 @@ class TsPacket {
 
   // TS header.
   bool payload_unit_start_indicator_;
+  bool transport_error_indicator_ = false;
   int pid_;
   int continuity_counter_;
 

@@ -98,6 +98,7 @@ bool TsPacket::ParseHeader(const uint8_t* buf) {
   RCHECK(bit_reader.ReadBits(2, &adaptation_field_control));
   RCHECK(bit_reader.ReadBits(4, &continuity_counter_));
   payload_unit_start_indicator_ = (payload_unit_start_indicator != 0);
+  transport_error_indicator_ = (transport_error_indicator != 0);
   payload_ += 4;
   payload_size_ -= 4;
 

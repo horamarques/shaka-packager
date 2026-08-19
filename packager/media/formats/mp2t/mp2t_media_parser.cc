@@ -16,6 +16,9 @@
 
 #include <absl/log/check.h>
 #include <absl/log/log.h>
+#include <absl/strings/str_cat.h>
+#include <prometheus/counter.h>
+#include <prometheus/gauge.h>
 
 #include <packager/macros/logging.h>
 #include <packager/media/base/audio_stream_info.h>
@@ -39,10 +42,43 @@
 #include <packager/media/formats/mp2t/ts_section_pmt.h>
 #include <packager/media/formats/mp2t/ts_section_scte35.h>
 #include <packager/media/formats/mp2t/ts_stream_type.h>
+#include <packager/metrics/metrics_service.h>
 
 namespace shaka {
 namespace media {
 namespace mp2t {
+
+namespace {
+
+prometheus::Family<prometheus::Counter>& TsCcErrorFamily() {
+  static auto& family =
+      prometheus::BuildCounter()
+          .Name("shaka_ts_cc_errors_total")
+          .Help("MPEG-TS continuity-counter errors, per PID.")
+          .Register(MetricsService::Instance().registry());
+  return family;
+}
+
+prometheus::Family<prometheus::Counter>& TsPesErrorFamily() {
+  static auto& family =
+      prometheus::BuildCounter()
+          .Name("shaka_ts_pes_errors_total")
+          .Help("PES/section parse failures, per PID.")
+          .Register(MetricsService::Instance().registry());
+  return family;
+}
+
+prometheus::Family<prometheus::Gauge>& LatestPtsFamily() {
+  static auto& family =
+      prometheus::BuildGauge()
+          .Name("shaka_media_latest_pts_seconds")
+          .Help("Latest media timestamp seen on the input, per PID, in "
+                "seconds of the 90kHz TS clock.")
+          .Register(MetricsService::Instance().registry());
+  return family;
+}
+
+}  // namespace
 
 class PidState {
  public:
@@ -81,6 +117,10 @@ class PidState {
     config_ = config;
   }
 
+  void set_latest_pts_seconds(double seconds) {
+    latest_pts_gauge_->Set(seconds);
+  }
+
  private:
   friend Mp2tMediaParser;
   void ResetState();
@@ -96,6 +136,11 @@ class PidState {
   bool enable_;
   int continuity_counter_;
   std::shared_ptr<StreamInfo> config_;
+
+  // Metrics handles, resolved once per PID at construction.
+  prometheus::Counter* cc_errors_counter_;
+  prometheus::Counter* pes_errors_counter_;
+  prometheus::Gauge* latest_pts_gauge_;
 };
 
 PidState::PidState(int pid,
@@ -105,7 +150,13 @@ PidState::PidState(int pid,
       pid_type_(pid_type),
       section_parser_(std::move(section_parser)),
       enable_(false),
-      continuity_counter_(-1) {
+      continuity_counter_(-1),
+      cc_errors_counter_(
+          &TsCcErrorFamily().Add({{"pid", absl::StrCat(pid)}})),
+      pes_errors_counter_(
+          &TsPesErrorFamily().Add({{"pid", absl::StrCat(pid)}})),
+      latest_pts_gauge_(
+          &LatestPtsFamily().Add({{"pid", absl::StrCat(pid)}})) {
   DCHECK(section_parser_);
 }
 
@@ -127,6 +178,7 @@ bool PidState::PushTsPacket(const TsPacket& ts_packet) {
     LOG(WARNING) << "TS discontinuity detected for pid: " << pid_
                  << ", expected CC: " << expected_continuity_counter
                  << ", received CC: " << ts_packet.continuity_counter();
+    cc_errors_counter_->Increment();
     // Drop the in-flight PES packet/section so it is not emitted with a
     // hole. The section parser then ignores packets until the next
     // payload_unit_start_indicator, so the current packet is only consumed
@@ -144,6 +196,7 @@ bool PidState::PushTsPacket(const TsPacket& ts_packet) {
   // Components that use the Mp2tMediaParser can take further action if needed.
   if (!status) {
     LOG(ERROR) << "Parsing failed for pid = " << pid_ << ", type=" << pid_type_;
+    pes_errors_counter_->Increment();
     ResetState();
   }
 
@@ -178,7 +231,20 @@ void PidState::ResetState() {
 }
 
 Mp2tMediaParser::Mp2tMediaParser()
-    : sbr_in_mimetype_(false), is_initialized_(false) {}
+    : sbr_in_mimetype_(false),
+      is_initialized_(false),
+      tei_packets_counter_(
+          &prometheus::BuildCounter()
+               .Name("shaka_ts_tei_packets_total")
+               .Help("TS packets with the transport_error_indicator set.")
+               .Register(MetricsService::Instance().registry())
+               .Add({})),
+      unsupported_streams_counter_(
+          &prometheus::BuildCounter()
+               .Name("shaka_ts_unsupported_streams_total")
+               .Help("Elementary streams ignored as unsupported.")
+               .Register(MetricsService::Instance().registry())
+               .Add({})) {}
 
 Mp2tMediaParser::~Mp2tMediaParser() {}
 
@@ -245,6 +311,8 @@ bool Mp2tMediaParser::Parse(const uint8_t* buf, int size) {
       ts_byte_queue_.Pop(1);
       continue;
     }
+    if (ts_packet->transport_error_indicator())
+      tei_packets_counter_->Increment();
     DVLOG(LOG_LEVEL_TS) << "Processing PID=" << ts_packet->pid()
                         << " start_unit="
                         << ts_packet->payload_unit_start_indicator()
@@ -432,6 +500,7 @@ void Mp2tMediaParser::OnNewStreamInfo(
     pid_state->second->set_config(new_stream_info);
   } else {
     LOG(WARNING) << "Ignoring unsupported stream with pid=" << pes_pid;
+    unsupported_streams_counter_->Increment();
     pid_state->second->Disable();
   }
 
@@ -502,6 +571,7 @@ void Mp2tMediaParser::OnEmitMediaSample(
   // For audio and other streams, use PTS (default already set above)
 
   update_biggest_pts(timestamp_for_heartbeat);
+  pid_state->second->set_latest_pts_seconds(timestamp_for_heartbeat / 90000.0);
   pid_state->second->media_sample_queue_.push_back(std::move(new_sample));
 }
 

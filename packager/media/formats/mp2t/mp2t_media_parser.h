@@ -20,6 +20,10 @@
 #include <packager/media/formats/mp2t/ts_audio_type.h>
 #include <packager/media/formats/mp2t/ts_stream_type.h>
 
+namespace prometheus {
+class Counter;
+}  // namespace prometheus
+
 namespace shaka {
 namespace media {
 
@@ -135,6 +139,10 @@ class Mp2tMediaParser : public MediaParser {
 
   // Whether |init_cb_| has been invoked.
   bool is_initialized_;
+
+  // Metrics handles, resolved once in the constructor.
+  prometheus::Counter* tei_packets_counter_ = nullptr;
+  prometheus::Counter* unsupported_streams_counter_ = nullptr;
 
   // A map used to track unsupported stream types and make sure the error is
   // only logged once.
