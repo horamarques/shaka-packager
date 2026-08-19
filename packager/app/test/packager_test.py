@@ -1397,6 +1397,149 @@ class PackagerFunctionalTest(PackagerAppTest):
                      'merge mode must heal a single-leg kill without '
                      'discontinuities')
 
+  def _probeFreePorts(self, count, socket_type):
+    import socket as socket_module
+    ports = []
+    for _ in range(count):
+      probe = socket_module.socket(socket_module.AF_INET, socket_type)
+      probe.bind(('127.0.0.1', 0))
+      ports.append(probe.getsockname()[1])
+      probe.close()
+    return ports
+
+  def _scrapeMetrics(self, port):
+    import urllib.request
+    with urllib.request.urlopen(
+        'http://127.0.0.1:%d/metrics' % port, timeout=5) as response:
+      return response.read().decode('utf8')
+
+  def testMetricsEndpointServesLiveFamilies(self):
+    # Live DASH from redundant UDP legs with --metrics_port: every metric
+    # family must appear on /metrics with sane values while running.
+    import socket as socket_module
+    udp_ports = self._probeFreePorts(2, socket_module.SOCK_DGRAM)
+    metrics_port = self._probeFreePorts(1, socket_module.SOCK_STREAM)[0]
+
+    url = ('redundant://udp://127.0.0.1:%d?timeout=100000'
+           '|udp://127.0.0.1:%d?timeout=100000') % tuple(udp_ports)
+    stream = ('input=%s,stream=video,init_segment=%s/video_init.mp4,'
+              'segment_template=%s/video_$Number$.m4s') % (
+                  url, self.tmp_dir, self.tmp_dir)
+    cmd = [
+        test_env.PACKAGER_BIN, stream,
+        '--mpd_output', os.path.join(self.tmp_dir, 'output.mpd'),
+        '--segment_duration', '1',
+        '--time_shift_buffer_depth', '10',
+        '--metrics_port', str(metrics_port),
+        '--test_packager_version', '<tag>-<hash>-<test>',
+    ]
+    packager_process = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                        stderr=subprocess.PIPE)
+    try:
+      replay_tool = os.path.join(test_env.SRC_DIR, 'packager', 'tools',
+                                 'redundant_ts', 'replay_ts.py')
+      ts_file = os.path.join(self.test_data_dir, 'bear-640x360.ts')
+      import time as time_module
+      time_module.sleep(2)  # Let the packager bind sockets and the exposer.
+      subprocess.check_call([
+          'python3', replay_tool, ts_file,
+          '--ports', str(udp_ports[0]), str(udp_ports[1]),
+          '--pps', '300',
+      ])
+      # Poll for segments/manifest writes to land instead of a fixed sleep.
+      metrics = ''
+      for _ in range(20):
+        time_module.sleep(0.5)
+        try:
+          metrics = self._scrapeMetrics(metrics_port)
+        except Exception:
+          continue
+        if 'shaka_segments_emitted_total' in metrics:
+          break
+    finally:
+      packager_process.terminate()
+      _, stderr = packager_process.communicate(timeout=30)
+
+    for family in [
+        'shaka_build_info',
+        'shaka_udp_bytes_received_total',
+        'shaka_udp_datagrams_received_total',
+        'shaka_redundant_leg_packets_total',
+        'shaka_media_latest_pts_seconds',
+        'shaka_segments_emitted_total',
+        'shaka_manifest_writes_total',
+        'shaka_live_buffer_depth_seconds',
+        'shaka_output_bandwidth_bps',
+    ]:
+      self.assertIn(family, metrics,
+                    'missing %s in /metrics; stderr:\n%s' %
+                    (family, stderr.decode('utf8', 'replace')))
+
+    match = re.search(r'shaka_segments_emitted_total\{[^}]*\} ([0-9.e+]+)',
+                      metrics)
+    self.assertIsNotNone(match)
+    self.assertGreater(float(match.group(1)), 0)
+
+  def testMetricsFailoverSwitchCounter(self):
+    # Failover mode: killing the active leg must show up on /metrics as a
+    # switch and an unhealthy leg 0.
+    import socket as socket_module
+    udp_ports = self._probeFreePorts(2, socket_module.SOCK_DGRAM)
+    metrics_port = self._probeFreePorts(1, socket_module.SOCK_STREAM)[0]
+
+    url = ('redundant://udp://127.0.0.1:%d?timeout=100000'
+           '|udp://127.0.0.1:%d?timeout=100000&mode=failover') % tuple(
+               udp_ports)
+    stream = ('input=%s,stream=video,init_segment=%s/video_init.mp4,'
+              'segment_template=%s/video_$Number$.m4s') % (
+                  url, self.tmp_dir, self.tmp_dir)
+    cmd = [
+        test_env.PACKAGER_BIN, stream,
+        '--mpd_output', os.path.join(self.tmp_dir, 'output.mpd'),
+        '--segment_duration', '1',
+        '--metrics_port', str(metrics_port),
+        '--test_packager_version', '<tag>-<hash>-<test>',
+    ]
+    packager_process = subprocess.Popen(cmd, stdout=subprocess.PIPE,
+                                        stderr=subprocess.PIPE)
+    try:
+      replay_tool = os.path.join(test_env.SRC_DIR, 'packager', 'tools',
+                                 'redundant_ts', 'replay_ts.py')
+      ts_file = os.path.join(self.test_data_dir, 'bear-640x360.ts')
+      import time as time_module
+      time_module.sleep(2)
+      subprocess.check_call([
+          'python3', replay_tool, ts_file,
+          '--ports', str(udp_ports[0]), str(udp_ports[1]),
+          '--pps', '300', '--kill', '0:0.5',
+      ])
+      # Poll for the switch to be reflected in /metrics instead of a fixed
+      # sleep, bounded to stay well under the failover_timeout_ms + margin.
+      metrics = ''
+      for _ in range(20):
+        time_module.sleep(0.5)
+        try:
+          metrics = self._scrapeMetrics(metrics_port)
+        except Exception:
+          continue
+        if re.search(r'shaka_redundant_switches_total\{[^}]*\} '
+                     r'(?!0(?:\.0+)?\b)[0-9.e+]+', metrics):
+          break
+    finally:
+      packager_process.terminate()
+      _, stderr = packager_process.communicate(timeout=30)
+
+    switches = re.search(
+        r'shaka_redundant_switches_total\{[^}]*\} ([0-9.e+]+)', metrics)
+    self.assertIsNotNone(switches, 'no switches metric; stderr:\n%s' %
+                         stderr.decode('utf8', 'replace'))
+    self.assertGreaterEqual(float(switches.group(1)), 1.0)
+    leg0 = re.search(
+        r'shaka_redundant_leg_healthy\{[^}]*leg="0"[^}]*\} ([0-9.e+]+)',
+        metrics)
+    self.assertIsNotNone(leg0)
+    self.assertEqual(0.0, float(leg0.group(1)))
+
   def testScte35FromEmsgMp4(self):
     # End-to-end SCTE-35 carried in fMP4 'emsg' boxes -> HLS EXT-X-DATERANGE and
     # DASH EventStream. The test asset embeds a version-1 emsg box with scheme
