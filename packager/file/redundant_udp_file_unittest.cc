@@ -20,6 +20,7 @@
 #include <gtest/gtest.h>
 
 #include <packager/file.h>
+#include <packager/metrics/metrics_service.h>
 
 namespace shaka {
 namespace {
@@ -241,6 +242,145 @@ TEST_F(RedundantUdpFileLoopbackTest, SurvivesLegSilence) {
 
   ASSERT_GE(received.size(), expected.size());
   EXPECT_EQ(0, memcmp(expected.data(), received.data(), expected.size()));
+}
+
+// Builds a valid, distinct 188-byte TS packet (mirrors BuildTsPacket in
+// redundant_input_merger_unittest.cc).
+std::vector<uint8_t> BuildTsPacket(uint32_t seq) {
+  std::vector<uint8_t> packet(RedundantInputMerger::kTsPacketSize, 0xFF);
+  packet[0] = 0x47;
+  packet[1] = 0x01;
+  packet[2] = 0x00;
+  packet[3] = 0x10 | (seq & 0x0F);
+  packet[4] = (seq >> 24) & 0xFF;
+  packet[5] = (seq >> 16) & 0xFF;
+  packet[6] = (seq >> 8) & 0xFF;
+  packet[7] = seq & 0xFF;
+  return packet;
+}
+
+// Returns the value of |family_name| for the metric whose "leg" label is
+// |leg| (or the first metric in the family when |leg| is empty, for global
+// families), or -1 when the family/metric is absent.
+double RedundantMetricValue(const std::string& family_name,
+                            const std::string& leg) {
+  for (const auto& family :
+       MetricsService::Instance().CollectAllForTesting()) {
+    if (family.name != family_name)
+      continue;
+    for (const auto& metric : family.metric) {
+      bool leg_matches = leg.empty();
+      for (const auto& label : metric.label) {
+        if (label.name == "leg" && label.value == leg)
+          leg_matches = true;
+      }
+      if (leg_matches) {
+        return family.type == prometheus::MetricType::Counter
+                   ? metric.counter.value
+                   : metric.gauge.value;
+      }
+    }
+  }
+  return -1;
+}
+
+TEST(RedundantUdpFileMetricsTest, SnapshotIsExportedViaCollectable) {
+  // Probe two free loopback ports (same pattern as
+  // RedundantUdpFileLoopbackTest::SetUp).
+  uint16_t ports[2] = {0, 0};
+  for (int i = 0; i < 2; ++i) {
+    int probe = socket(AF_INET, SOCK_DGRAM, 0);
+    ASSERT_GE(probe, 0);
+    sockaddr_in addr = {};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = 0;
+    ASSERT_EQ(0,
+              bind(probe, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)));
+    socklen_t len = sizeof(addr);
+    ASSERT_EQ(0,
+              getsockname(probe, reinterpret_cast<sockaddr*>(&addr), &len));
+    ports[i] = ntohs(addr.sin_port);
+    close(probe);  // Freed; RedundantUdpFile re-binds it right away.
+  }
+
+  const std::string url = "redundant://udp://127.0.0.1:" +
+                          std::to_string(ports[0]) +
+                          "?timeout=50000|udp://127.0.0.1:" +
+                          std::to_string(ports[1]) + "?timeout=50000";
+  File* reader = File::Open(url.c_str(), "r");
+  ASSERT_TRUE(reader != nullptr);
+
+  const int sender = socket(AF_INET, SOCK_DGRAM, 0);
+  ASSERT_GE(sender, 0);
+  auto send_to = [&](uint16_t port, const uint8_t* data, size_t size) {
+    sockaddr_in addr = {};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = htons(port);
+    sendto(sender, data, size, 0, reinterpret_cast<sockaddr*>(&addr),
+           sizeof(addr));
+  };
+
+  const int kNumPackets = 10;
+  std::vector<uint8_t> expected;
+  for (int i = 0; i < kNumPackets; ++i) {
+    const std::vector<uint8_t> packet = BuildTsPacket(i);
+    expected.insert(expected.end(), packet.begin(), packet.end());
+  }
+
+  std::atomic<bool> stop_keepalive{false};
+  std::thread producer([&]() {
+    for (int i = 0; i < kNumPackets; ++i) {
+      // Both legs get every packet, leg 0 first: the merge dedup window
+      // drops the later (leg 1) arrival of each duplicate.
+      send_to(ports[0], expected.data() + i * 188, 188);
+      send_to(ports[1], expected.data() + i * 188, 188);
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    // Keepalives guarantee reader progress even if a payload datagram is
+    // lost; distinct seq values keep them out of the payload dedup window.
+    uint32_t ka_seq = 1000;
+    while (!stop_keepalive.load()) {
+      const std::vector<uint8_t> ka = BuildTsPacket(ka_seq++);
+      send_to(ports[0], ka.data(), ka.size());
+      std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+  });
+
+  std::vector<uint8_t> received;
+  received.reserve(expected.size());
+  std::vector<uint8_t> chunk(4096);
+  while (received.size() < expected.size()) {
+    const int64_t bytes = reader->Read(chunk.data(), chunk.size());
+    if (bytes <= 0)
+      break;
+    received.insert(received.end(), chunk.begin(), chunk.begin() + bytes);
+  }
+  stop_keepalive.store(true);
+  producer.join();
+  close(sender);
+
+  ASSERT_GE(received.size(), expected.size());
+
+  EXPECT_GE(RedundantMetricValue("shaka_redundant_leg_packets_total", "0"),
+            10.0);
+  EXPECT_GE(RedundantMetricValue("shaka_redundant_leg_packets_total", "1"),
+            10.0);
+  EXPECT_GE(RedundantMetricValue("shaka_redundant_leg_dropped_dup_total", "1"),
+            1.0);
+  EXPECT_DOUBLE_EQ(1.0,
+                   RedundantMetricValue("shaka_redundant_leg_healthy", "0"));
+  EXPECT_DOUBLE_EQ(
+      0.0, RedundantMetricValue("shaka_redundant_switches_total", ""));
+
+  ASSERT_TRUE(reader->Close());
+
+  // After Close(), the collectable must be detached and destroyed: the
+  // family disappears from scrapes entirely (stale-free absence, not a
+  // stale last value).
+  EXPECT_DOUBLE_EQ(
+      -1.0, RedundantMetricValue("shaka_redundant_leg_packets_total", "0"));
 }
 
 }  // namespace

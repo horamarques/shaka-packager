@@ -12,9 +12,12 @@
 #include <absl/log/log.h>
 #include <absl/strings/numbers.h>
 #include <absl/strings/str_split.h>
+#include <prometheus/collectable.h>
+#include <prometheus/metric_family.h>
 
 #include <packager/macros/compiler.h>
 #include <packager/macros/logging.h>
+#include <packager/metrics/metrics_service.h>
 
 namespace shaka {
 namespace {
@@ -46,6 +49,110 @@ bool ParseIntParam(const std::string& pair, const char* key, int64_t* out) {
 }
 
 }  // namespace
+
+// Exports RedundantUdpFile::GetStatsSnapshot() as Prometheus families.
+// Detach() severs the back-pointer before the file self-deletes in Close();
+// the MetricsService holds this object weakly, so its own destruction needs
+// no unregistration.
+class RedundantUdpStatsCollector : public prometheus::Collectable {
+ public:
+  RedundantUdpStatsCollector(RedundantUdpFile* file, std::string input_label)
+      : file_(file), input_(std::move(input_label)) {}
+
+  void Detach() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    file_ = nullptr;
+  }
+
+  std::vector<prometheus::MetricFamily> Collect() const override {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!file_)
+      return {};
+    const RedundantUdpFile::StatsSnapshot snap = file_->GetStatsSnapshot();
+
+    std::vector<prometheus::MetricFamily> families;
+    // Fixed at exactly 10 add_family() calls below (6 per-leg families + 4
+    // global ones); reserving upfront keeps the raw pointers add_family
+    // returns valid for later add_metric() calls despite growing the vector
+    // via push_back (no reallocation while size <= capacity).
+    families.reserve(10);
+    auto add_family = [&](const char* name, const char* help,
+                          prometheus::MetricType type) {
+      prometheus::MetricFamily family;
+      family.name = name;
+      family.help = help;
+      family.type = type;
+      families.push_back(std::move(family));
+      return &families.back();
+    };
+    auto add_metric = [&](prometheus::MetricFamily* family, double value,
+                          int leg /* -1 = global */) {
+      prometheus::ClientMetric metric;
+      metric.label.push_back({"input", input_});
+      if (leg >= 0)
+        metric.label.push_back({"leg", std::to_string(leg)});
+      if (family->type == prometheus::MetricType::Counter)
+        metric.counter.value = value;
+      else
+        metric.gauge.value = value;
+      family->metric.push_back(std::move(metric));
+    };
+
+    using prometheus::MetricType;
+    auto* packets = add_family("shaka_redundant_leg_packets_total",
+                               "Well-framed TS packets per leg.",
+                               MetricType::Counter);
+    auto* dropped = add_family("shaka_redundant_leg_dropped_dup_total",
+                               "Packets dropped as duplicates per leg.",
+                               MetricType::Counter);
+    auto* resyncs = add_family("shaka_redundant_leg_resyncs_total",
+                               "Sync-byte resyncs per leg.",
+                               MetricType::Counter);
+    auto* cc_errors = add_family("shaka_redundant_leg_cc_errors_total",
+                                 "Continuity-counter errors per leg.",
+                                 MetricType::Counter);
+    auto* healthy = add_family("shaka_redundant_leg_healthy",
+                               "1 when the leg is HEALTHY, else 0.",
+                               MetricType::Gauge);
+    auto* active = add_family("shaka_redundant_leg_active",
+                              "1 for the active leg (failover mode).",
+                              MetricType::Gauge);
+    for (size_t i = 0; i < snap.legs.size(); ++i) {
+      const auto& leg = snap.legs[i];
+      const int leg_index = static_cast<int>(i);
+      add_metric(packets, static_cast<double>(leg.packets), leg_index);
+      add_metric(dropped, static_cast<double>(leg.dropped_dup), leg_index);
+      add_metric(resyncs, static_cast<double>(leg.resyncs), leg_index);
+      add_metric(cc_errors, static_cast<double>(leg.cc_errors), leg_index);
+      add_metric(healthy,
+                 leg.state == RedundantInputMerger::LegState::kHealthy ? 1 : 0,
+                 leg_index);
+      add_metric(active, snap.active_leg == i ? 1 : 0, leg_index);
+    }
+    add_metric(add_family("shaka_redundant_switches_total",
+                          "Active-leg switches (failover mode).",
+                          MetricType::Counter),
+               static_cast<double>(snap.switches), -1);
+    add_metric(add_family("shaka_redundant_emitted_cc_errors_total",
+                          "Continuity-counter errors in the emitted stream.",
+                          MetricType::Counter),
+               static_cast<double>(snap.emitted_cc_errors), -1);
+    add_metric(add_family("shaka_redundant_max_skew_ms",
+                          "Largest observed inter-leg arrival skew, ms.",
+                          MetricType::Gauge),
+               static_cast<double>(snap.max_skew_ms), -1);
+    add_metric(add_family("shaka_redundant_window_evictions_total",
+                          "Dedup-window evictions by the packet-count bound.",
+                          MetricType::Counter),
+               static_cast<double>(snap.window_evictions), -1);
+    return families;
+  }
+
+ private:
+  mutable std::mutex mutex_;
+  RedundantUdpFile* file_;
+  const std::string input_;
+};
 
 RedundantUdpFile::RedundantUdpFile(const char* url)
     : File(url), cache_(kCacheSize) {}
@@ -123,6 +230,9 @@ bool RedundantUdpFile::Open() {
       config_, [this](const uint8_t* packet) {
         cache_.Write(packet, RedundantInputMerger::kTsPacketSize);
       }));
+  stats_collector_ =
+      std::make_shared<RedundantUdpStatsCollector>(this, file_name());
+  MetricsService::Instance().RegisterCollectable(stats_collector_);
 
   size_t opened = 0;
   legs_.resize(leg_urls_.size(), nullptr);
@@ -171,6 +281,23 @@ void RedundantUdpFile::ReaderThread(size_t leg_index) {
   }
 }
 
+RedundantUdpFile::StatsSnapshot RedundantUdpFile::SnapshotLocked() const {
+  StatsSnapshot snap;
+  for (size_t i = 0; i < config_.num_legs; ++i)
+    snap.legs.push_back(merger_->GetLegStats(i));
+  snap.active_leg = merger_->active_leg();
+  snap.switches = merger_->switches();
+  snap.emitted_cc_errors = merger_->emitted_cc_errors();
+  snap.max_skew_ms = merger_->max_skew_ms();
+  snap.window_evictions = merger_->window_evictions();
+  return snap;
+}
+
+RedundantUdpFile::StatsSnapshot RedundantUdpFile::GetStatsSnapshot() {
+  std::lock_guard<std::mutex> lock(merger_mutex_);
+  return SnapshotLocked();
+}
+
 void RedundantUdpFile::MaybeLogStats(int64_t now_ms) {
   // Called with merger_mutex_ held.
   if (now_ms - last_stats_log_ms_ < kStatsLogPeriodMs)
@@ -179,8 +306,9 @@ void RedundantUdpFile::MaybeLogStats(int64_t now_ms) {
   last_stats_log_ms_ = now_ms;
   if (first)
     return;  // Skip the incomplete first period.
-  for (size_t i = 0; i < config_.num_legs; ++i) {
-    const RedundantInputMerger::LegStats stats = merger_->GetLegStats(i);
+  const StatsSnapshot snap = SnapshotLocked();
+  for (size_t i = 0; i < snap.legs.size(); ++i) {
+    const RedundantInputMerger::LegStats& stats = snap.legs[i];
     LOG(INFO) << "redundant_input: leg=" << i << " pkts=" << stats.packets
               << " dropped_dup=" << stats.dropped_dup
               << " resyncs=" << stats.resyncs
@@ -188,13 +316,12 @@ void RedundantUdpFile::MaybeLogStats(int64_t now_ms) {
               << (stats.state == RedundantInputMerger::LegState::kHealthy
                       ? "HEALTHY"
                       : "UNHEALTHY")
-              << " active="
-              << (merger_->active_leg() == i ? "yes" : "no");
+              << " active=" << (snap.active_leg == i ? "yes" : "no");
   }
-  LOG(INFO) << "redundant_input: switches=" << merger_->switches()
-            << " emitted_cc_errors=" << merger_->emitted_cc_errors()
-            << " max_skew_ms=" << merger_->max_skew_ms()
-            << " window_evictions=" << merger_->window_evictions();
+  LOG(INFO) << "redundant_input: switches=" << snap.switches
+            << " emitted_cc_errors=" << snap.emitted_cc_errors
+            << " max_skew_ms=" << snap.max_skew_ms
+            << " window_evictions=" << snap.window_evictions;
 }
 
 bool RedundantUdpFile::Close() {
@@ -215,6 +342,12 @@ bool RedundantUdpFile::Close() {
     }
   }
   cache_.Close();
+  if (stats_collector_) {
+    // Sever the collector's back-pointer before self-deletion; a scrape
+    // holding the shared_ptr sees an empty result instead of a dangle.
+    stats_collector_->Detach();
+    stats_collector_.reset();
+  }
   delete this;
   return true;
 }

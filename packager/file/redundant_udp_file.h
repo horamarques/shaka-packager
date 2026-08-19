@@ -23,6 +23,8 @@
 
 namespace shaka {
 
+class RedundantUdpStatsCollector;
+
 /// Implements RedundantUdpFile, which receives the same MPEG-TS multiplex
 /// from multiple UDP legs (SMPTE 2022-7 style) and exposes a single merged
 /// byte stream. See docs/superpowers/specs/2026-08-18-redundant-ts-input-
@@ -60,6 +62,18 @@ class RedundantUdpFile : public File {
                        std::vector<std::string>* leg_urls,
                        RedundantInputMerger::Config* config);
 
+  /// Point-in-time copy of the merger counters, safe to take from any
+  /// thread (locks the internal merger mutex).
+  struct StatsSnapshot {
+    std::vector<RedundantInputMerger::LegStats> legs;
+    size_t active_leg = 0;
+    uint64_t switches = 0;
+    uint64_t emitted_cc_errors = 0;
+    int64_t max_skew_ms = 0;
+    uint64_t window_evictions = 0;
+  };
+  StatsSnapshot GetStatsSnapshot();
+
  protected:
   ~RedundantUdpFile() override;
 
@@ -69,6 +83,8 @@ class RedundantUdpFile : public File {
   void ReaderThread(size_t leg_index);
   // Logs per-leg and global merger counters once per minute (mutex held).
   void MaybeLogStats(int64_t now_ms);
+  // Snapshot with merger_mutex_ already held.
+  StatsSnapshot SnapshotLocked() const;
 
   std::vector<std::string> leg_urls_;
   RedundantInputMerger::Config config_;
@@ -86,6 +102,10 @@ class RedundantUdpFile : public File {
   int64_t last_stats_log_ms_ = 0;
   std::vector<std::thread> threads_;
   std::atomic<bool> stop_{false};
+
+  // Scrape-time exporter of GetStatsSnapshot(); registered weakly with
+  // MetricsService in Open() and detached in Close() before delete this.
+  std::shared_ptr<RedundantUdpStatsCollector> stats_collector_;
 
   DISALLOW_COPY_AND_ASSIGN(RedundantUdpFile);
 };
