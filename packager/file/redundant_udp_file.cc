@@ -71,11 +71,10 @@ class RedundantUdpStatsCollector : public prometheus::Collectable {
     const RedundantUdpFile::StatsSnapshot snap = file_->GetStatsSnapshot();
 
     std::vector<prometheus::MetricFamily> families;
-    // Fixed at exactly 10 add_family() calls below (6 per-leg families + 4
-    // global ones); reserving upfront keeps the raw pointers add_family
-    // returns valid for later add_metric() calls despite growing the vector
-    // via push_back (no reallocation while size <= capacity).
-    families.reserve(10);
+    // add_family returns an index into |families|, not a pointer: the
+    // vector keeps growing via push_back as more families are added, and an
+    // index (unlike a pointer/reference) stays valid across any subsequent
+    // reallocation.
     auto add_family = [&](const char* name, const char* help,
                           prometheus::MetricType type) {
       prometheus::MetricFamily family;
@@ -83,40 +82,42 @@ class RedundantUdpStatsCollector : public prometheus::Collectable {
       family.help = help;
       family.type = type;
       families.push_back(std::move(family));
-      return &families.back();
+      return families.size() - 1;
     };
-    auto add_metric = [&](prometheus::MetricFamily* family, double value,
+    auto add_metric = [&](size_t family_index, double value,
                           int leg /* -1 = global */) {
+      prometheus::MetricFamily& family = families[family_index];
       prometheus::ClientMetric metric;
       metric.label.push_back({"input", input_});
       if (leg >= 0)
         metric.label.push_back({"leg", std::to_string(leg)});
-      if (family->type == prometheus::MetricType::Counter)
+      if (family.type == prometheus::MetricType::Counter)
         metric.counter.value = value;
       else
         metric.gauge.value = value;
-      family->metric.push_back(std::move(metric));
+      family.metric.push_back(std::move(metric));
     };
 
     using prometheus::MetricType;
-    auto* packets = add_family("shaka_redundant_leg_packets_total",
-                               "Well-framed TS packets per leg.",
-                               MetricType::Counter);
-    auto* dropped = add_family("shaka_redundant_leg_dropped_dup_total",
-                               "Packets dropped as duplicates per leg.",
-                               MetricType::Counter);
-    auto* resyncs = add_family("shaka_redundant_leg_resyncs_total",
-                               "Sync-byte resyncs per leg.",
-                               MetricType::Counter);
-    auto* cc_errors = add_family("shaka_redundant_leg_cc_errors_total",
-                                 "Continuity-counter errors per leg.",
-                                 MetricType::Counter);
-    auto* healthy = add_family("shaka_redundant_leg_healthy",
-                               "1 when the leg is HEALTHY, else 0.",
-                               MetricType::Gauge);
-    auto* active = add_family("shaka_redundant_leg_active",
-                              "1 for the active leg (failover mode).",
-                              MetricType::Gauge);
+    const size_t packets = add_family("shaka_redundant_leg_packets_total",
+                                      "Well-framed TS packets per leg.",
+                                      MetricType::Counter);
+    const size_t dropped =
+        add_family("shaka_redundant_leg_dropped_dup_total",
+                   "Packets dropped as duplicates per leg.",
+                   MetricType::Counter);
+    const size_t resyncs = add_family("shaka_redundant_leg_resyncs_total",
+                                      "Sync-byte resyncs per leg.",
+                                      MetricType::Counter);
+    const size_t cc_errors =
+        add_family("shaka_redundant_leg_cc_errors_total",
+                   "Continuity-counter errors per leg.", MetricType::Counter);
+    const size_t healthy = add_family("shaka_redundant_leg_healthy",
+                                      "1 when the leg is HEALTHY, else 0.",
+                                      MetricType::Gauge);
+    const size_t active = add_family("shaka_redundant_leg_active",
+                                     "1 for the active leg (failover mode).",
+                                     MetricType::Gauge);
     for (size_t i = 0; i < snap.legs.size(); ++i) {
       const auto& leg = snap.legs[i];
       const int leg_index = static_cast<int>(i);
@@ -230,9 +231,6 @@ bool RedundantUdpFile::Open() {
       config_, [this](const uint8_t* packet) {
         cache_.Write(packet, RedundantInputMerger::kTsPacketSize);
       }));
-  stats_collector_ =
-      std::make_shared<RedundantUdpStatsCollector>(this, file_name());
-  MetricsService::Instance().RegisterCollectable(stats_collector_);
 
   size_t opened = 0;
   legs_.resize(leg_urls_.size(), nullptr);
@@ -257,6 +255,13 @@ bool RedundantUdpFile::Open() {
     if (legs_[i])
       threads_.emplace_back(&RedundantUdpFile::ReaderThread, this, i);
   }
+
+  // Register only once success is certain: if Open() returns false, the
+  // File::Open factory destroys this object directly (not via Close()), so
+  // a collector registered any earlier could still be scraped mid-teardown.
+  stats_collector_ =
+      std::make_shared<RedundantUdpStatsCollector>(this, file_name());
+  MetricsService::Instance().RegisterCollectable(stats_collector_);
   return true;
 }
 

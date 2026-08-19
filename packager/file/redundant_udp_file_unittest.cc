@@ -383,5 +383,76 @@ TEST(RedundantUdpFileMetricsTest, SnapshotIsExportedViaCollectable) {
       -1.0, RedundantMetricValue("shaka_redundant_leg_packets_total", "0"));
 }
 
+// Exercises the Detach()/Collect() mutex rendezvous: a scraper thread keeps
+// calling CollectAllForTesting() (locking the collector's mutex and, while
+// live, reading through the file_ back-pointer) concurrently with Close()
+// (which takes the same mutex to null out file_ before self-deleting).
+// Neither side should crash or race, regardless of interleaving.
+TEST(RedundantUdpFileMetricsTest, SurvivesCloseDuringConcurrentScrape) {
+  uint16_t ports[2] = {0, 0};
+  for (int i = 0; i < 2; ++i) {
+    int probe = socket(AF_INET, SOCK_DGRAM, 0);
+    ASSERT_GE(probe, 0);
+    sockaddr_in addr = {};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = 0;
+    ASSERT_EQ(0,
+              bind(probe, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)));
+    socklen_t len = sizeof(addr);
+    ASSERT_EQ(0,
+              getsockname(probe, reinterpret_cast<sockaddr*>(&addr), &len));
+    ports[i] = ntohs(addr.sin_port);
+    close(probe);
+  }
+
+  const std::string url = "redundant://udp://127.0.0.1:" +
+                          std::to_string(ports[0]) +
+                          "?timeout=50000|udp://127.0.0.1:" +
+                          std::to_string(ports[1]) + "?timeout=50000";
+  File* reader = File::Open(url.c_str(), "r");
+  ASSERT_TRUE(reader != nullptr);
+
+  const int sender = socket(AF_INET, SOCK_DGRAM, 0);
+  ASSERT_GE(sender, 0);
+  auto send_to = [&](uint16_t port, const uint8_t* data, size_t size) {
+    sockaddr_in addr = {};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = htons(port);
+    sendto(sender, data, size, 0, reinterpret_cast<sockaddr*>(&addr),
+           sizeof(addr));
+  };
+
+  // Scraper thread: hammers CollectAllForTesting() until told to stop.
+  std::atomic<bool> stop_scraper{false};
+  std::thread scraper([&]() {
+    while (!stop_scraper.load()) {
+      MetricsService::Instance().CollectAllForTesting();
+    }
+  });
+
+  // Feed a handful of packets to both legs so the collector has real leg
+  // state to snapshot while the scraper is racing Close().
+  for (int i = 0; i < 5; ++i) {
+    const std::vector<uint8_t> packet = BuildTsPacket(i);
+    send_to(ports[0], packet.data(), packet.size());
+    send_to(ports[1], packet.data(), packet.size());
+    std::this_thread::sleep_for(std::chrono::milliseconds(1));
+  }
+
+  // Close() while the scraper thread is still looping: this is exactly the
+  // Detach()-vs-Collect() rendezvous under test.
+  ASSERT_TRUE(reader->Close());
+
+  stop_scraper.store(true);
+  scraper.join();
+  close(sender);
+
+  // Post-join scrape: the collectable is gone, so the family is absent.
+  EXPECT_DOUBLE_EQ(
+      -1.0, RedundantMetricValue("shaka_redundant_leg_packets_total", "0"));
+}
+
 }  // namespace
 }  // namespace shaka
