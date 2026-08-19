@@ -110,12 +110,34 @@ void MetricsMuxerListener::OnNewSegment(const std::string& segment_name,
   UNUSED(segment_number);
   segments_total_->Increment();
   segment_bytes_total_->Increment(static_cast<double>(segment_file_size));
+  last_new_segment_size_ = segment_file_size;
   if (time_scale_ > 0) {
     last_segment_duration_seconds_->Set(static_cast<double>(duration) /
                                         time_scale_);
     last_segment_timestamp_seconds_->Set(
         static_cast<double>(start_time + duration) / time_scale_);
   }
+}
+
+void MetricsMuxerListener::OnCompletedSegment(int64_t duration,
+                                              uint64_t segment_file_size) {
+  // LL-DASH: OnNewSegment fired early with provisional duration/size (first
+  // chunk); this callback carries the final values once the segment is
+  // fully written. No start_time is provided here, so the timestamp gauge
+  // (set from OnNewSegment) is left as-is -- an accepted interface
+  // limitation for LL streams.
+  if (time_scale_ > 0) {
+    last_segment_duration_seconds_->Set(static_cast<double>(duration) /
+                                        time_scale_);
+  }
+  // OnNewSegment already counted the provisional size; correct the total by
+  // the delta. Guard against segment_file_size <= last_new_segment_size_ in
+  // case an implementation reports the same or a smaller final size.
+  if (segment_file_size > last_new_segment_size_) {
+    segment_bytes_total_->Increment(
+        static_cast<double>(segment_file_size - last_new_segment_size_));
+  }
+  last_new_segment_size_ = 0;
 }
 
 void MetricsMuxerListener::OnKeyFrame(int64_t timestamp,

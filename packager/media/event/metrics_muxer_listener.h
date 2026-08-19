@@ -48,6 +48,8 @@ class MetricsMuxerListener : public MuxerListener {
                     int64_t duration,
                     uint64_t segment_file_size,
                     int64_t segment_number) override;
+  void OnCompletedSegment(int64_t duration,
+                          uint64_t segment_file_size) override;
   void OnKeyFrame(int64_t timestamp,
                   uint64_t start_byte_offset,
                   uint64_t size) override;
@@ -62,6 +64,7 @@ class MetricsMuxerListener : public MuxerListener {
   MetricsMuxerListener& operator=(const MetricsMuxerListener&) = delete;
 
   int32_t time_scale_ = 0;
+  uint64_t last_new_segment_size_ = 0;
 
   prometheus::Counter* const segments_total_;
   prometheus::Counter* const segment_bytes_total_;

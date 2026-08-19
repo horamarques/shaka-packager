@@ -82,6 +82,32 @@ TEST(MetricsMuxerListenerTest, TalliesSegmentsCuesAndKeyRotations) {
   EXPECT_DOUBLE_EQ(1.0, MetricValue("shaka_key_rotations_total", label));
 }
 
+TEST(MetricsMuxerListenerTest, ReconcilesLLDashCompletedSegment) {
+  // Unique label keeps assertions absolute despite the process-global
+  // registry.
+  const std::string label = "test_stream_7_ll_dash";
+  MetricsMuxerListener listener(label);
+
+  MuxerOptions muxer_options;
+  std::shared_ptr<StreamInfo> stream_info =
+      CreateVideoStreamInfo(GetDefaultVideoStreamInfoParams());
+  listener.OnMediaStart(muxer_options, *stream_info, 90000,
+                        MuxerListener::kContainerMpeg2ts);
+
+  // LL-DASH: OnNewSegment fires early with provisional duration/size (first
+  // chunk); OnCompletedSegment later delivers the final values.
+  listener.OnNewSegment("seg_1.mp4", /*start_time=*/900000,
+                        /*duration=*/90000, /*segment_file_size=*/100000,
+                        /*segment_number=*/1);
+  listener.OnCompletedSegment(/*duration=*/180000,
+                              /*segment_file_size=*/500000);
+
+  EXPECT_DOUBLE_EQ(1.0, MetricValue("shaka_segments_emitted_total", label));
+  EXPECT_DOUBLE_EQ(500000.0, MetricValue("shaka_segment_bytes_total", label));
+  EXPECT_DOUBLE_EQ(2.0,
+                   MetricValue("shaka_last_segment_duration_seconds", label));
+}
+
 }  // namespace
 }  // namespace media
 }  // namespace shaka
