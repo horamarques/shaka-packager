@@ -37,3 +37,6 @@
 [submodule "packager/third_party/mimalloc/source"]
 	path = packager/third_party/mimalloc/source
 	url = https://github.com/microsoft/mimalloc
+[submodule "packager/third_party/prometheus-cpp/source"]
+	path = packager/third_party/prometheus-cpp/source
+	url = https://github.com/jupp0r/prometheus-cpp

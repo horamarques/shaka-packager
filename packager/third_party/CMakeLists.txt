@@ -50,6 +50,7 @@ add_subdirectory(libxml2 EXCLUDE_FROM_ALL)
 add_subdirectory(mbedtls EXCLUDE_FROM_ALL)
 add_subdirectory(mimalloc EXCLUDE_FROM_ALL)
 add_subdirectory(mongoose EXCLUDE_FROM_ALL)
+add_subdirectory(prometheus-cpp EXCLUDE_FROM_ALL)
 # Marking protobuf as SYSTEM enables "external headers" mode in code analysis
 # for the protobuf-internal headers included by files generated through protoc.
 # This is equivalent to how dependencies added through `find_package` are
