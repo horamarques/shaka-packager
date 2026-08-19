@@ -1447,6 +1447,9 @@ class PackagerFunctionalTest(PackagerAppTest):
           '--pps', '300',
       ])
       # Poll for segments/manifest writes to land instead of a fixed sleep.
+      # The shaka_segments_emitted_total family is registered (with a "... 0"
+      # sample) at listener construction, so a mere substring/name check
+      # would break on the first iteration; wait for a positive count.
       metrics = ''
       for _ in range(20):
         time_module.sleep(0.5)
@@ -1454,7 +1457,9 @@ class PackagerFunctionalTest(PackagerAppTest):
           metrics = self._scrapeMetrics(metrics_port)
         except Exception:
           continue
-        if 'shaka_segments_emitted_total' in metrics:
+        segment_counts = re.findall(
+            r'shaka_segments_emitted_total\{[^}]*\} ([0-9.e+]+)', metrics)
+        if any(float(v) > 0 for v in segment_counts):
           break
     finally:
       packager_process.terminate()
