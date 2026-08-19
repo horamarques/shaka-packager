@@ -29,10 +29,19 @@ class MetricsService::MultiCollectable : public prometheus::Collectable {
     std::vector<std::shared_ptr<prometheus::Collectable>> live;
     {
       std::lock_guard<std::mutex> lock(mutex_);
-      for (const auto& weak : collectables_) {
-        if (auto strong = weak.lock())
-          live.push_back(std::move(strong));
+      // Lock each weak_ptr and compact the vector in place, dropping expired
+      // entries so a scrape after many register/destroy cycles doesn't scan
+      // (and the process doesn't retain) an ever-growing list of dead slots.
+      size_t write = 0;
+      for (size_t read = 0; read < collectables_.size(); ++read) {
+        if (auto strong = collectables_[read].lock()) {
+          live.push_back(strong);
+          if (write != read)
+            collectables_[write] = std::move(collectables_[read]);
+          ++write;
+        }
       }
+      collectables_.resize(write);
     }
     std::vector<prometheus::MetricFamily> families;
     for (const auto& collectable : live) {
@@ -45,7 +54,7 @@ class MetricsService::MultiCollectable : public prometheus::Collectable {
 
  private:
   mutable std::mutex mutex_;
-  std::vector<std::weak_ptr<prometheus::Collectable>> collectables_;
+  mutable std::vector<std::weak_ptr<prometheus::Collectable>> collectables_;
 };
 
 MetricsService::MetricsService()
