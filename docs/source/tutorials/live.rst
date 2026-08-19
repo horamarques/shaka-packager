@@ -90,3 +90,12 @@ Configuration options
 .. include:: /options/udp_file_options.rst
 .. include:: /options/redundant_input_options.rst
 .. include:: /options/segment_template_formatting.rst
+
+Monitoring live channels
+------------------------
+
+Pass ``--metrics_port`` to expose real-time counters and gauges in
+Prometheus text format on ``/metrics`` — input liveness, redundant-leg
+health, TS parse errors, emitted segments and live manifest state.
+
+.. include:: /options/metrics_options.rst
