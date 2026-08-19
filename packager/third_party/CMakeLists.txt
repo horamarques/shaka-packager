@@ -51,6 +51,25 @@ add_subdirectory(mbedtls EXCLUDE_FROM_ALL)
 add_subdirectory(mimalloc EXCLUDE_FROM_ALL)
 add_subdirectory(mongoose EXCLUDE_FROM_ALL)
 add_subdirectory(prometheus-cpp EXCLUDE_FROM_ALL)
+# Bundled civetweb (prometheus-cpp's HTTP exposer) and our vendored mongoose
+# (used by test_web_server) both define mg_printf/mg_base64_(en|de)code/
+# mg_url_(en|de)code with external linkage. Any binary that links both
+# (e.g. file_unittest, which needs metrics -> civetweb and test_web_server ->
+# mongoose) fails to link with duplicate symbol errors. Rename civetweb's
+# copies at compile time via macro substitution so the two libraries no
+# longer collide; this only affects the identifiers as seen by the
+# preprocessor; behavior is unchanged.
+if(TARGET civetweb AND TARGET pull)
+  set(_civetweb_renamed_syms
+      mg_printf=civetweb_mg_printf
+      mg_base64_encode=civetweb_mg_base64_encode
+      mg_base64_decode=civetweb_mg_base64_decode
+      mg_url_encode=civetweb_mg_url_encode
+      mg_url_decode=civetweb_mg_url_decode)
+  target_compile_definitions(civetweb PRIVATE ${_civetweb_renamed_syms})
+  target_compile_definitions(pull PRIVATE ${_civetweb_renamed_syms})
+  unset(_civetweb_renamed_syms)
+endif()
 # Marking protobuf as SYSTEM enables "external headers" mode in code analysis
 # for the protobuf-internal headers included by files generated through protoc.
 # This is equivalent to how dependencies added through `find_package` are

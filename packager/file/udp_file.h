@@ -19,6 +19,11 @@ typedef int SOCKET;
 #include <packager/file.h>
 #include <packager/macros/classes.h>
 
+namespace prometheus {
+class Counter;
+class Gauge;
+}  // namespace prometheus
+
 namespace shaka {
 
 /// Implements UdpFile, which receives UDP unicast and multicast streams.
@@ -51,6 +56,20 @@ class UdpFile : public File {
   // For Winsock in Windows.
   bool wsa_started_ = false;
 #endif  // defined(OS_WIN)
+
+  // Metrics handles; created in Open(), null until then. Never owned.
+  prometheus::Counter* bytes_received_counter_ = nullptr;
+  prometheus::Counter* datagrams_received_counter_ = nullptr;
+  prometheus::Counter* recv_timeouts_counter_ = nullptr;
+  prometheus::Counter* recv_errors_counter_ = nullptr;
+  prometheus::Gauge* last_receive_timestamp_gauge_ = nullptr;
+#if defined(__linux__)
+  prometheus::Counter* kernel_drops_counter_ = nullptr;
+  // SO_RXQ_OVFL reports a cumulative per-socket drop count; track the last
+  // value so the counter advances by deltas.
+  uint32_t last_kernel_drop_count_ = 0;
+  bool kernel_drop_count_valid_ = false;
+#endif
 
   DISALLOW_COPY_AND_ASSIGN(UdpFile);
 };

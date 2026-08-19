@@ -7,6 +7,7 @@
 #include <packager/file/udp_file.h>
 
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <memory>
 
@@ -33,12 +34,15 @@
 
 #include <absl/log/check.h>
 #include <absl/log/log.h>
+#include <prometheus/counter.h>
+#include <prometheus/gauge.h>
 
 #include <packager/file.h>
 #include <packager/file/udp_options.h>
 #include <packager/macros/classes.h>
 #include <packager/macros/compiler.h>
 #include <packager/macros/logging.h>
+#include <packager/metrics/metrics_service.h>
 
 namespace shaka {
 
@@ -85,11 +89,62 @@ int64_t UdpFile::Read(void* buffer, uint64_t length) {
     return -1;
 
   int64_t result;
+#if defined(__linux__)
+  struct iovec iov;
+  iov.iov_base = buffer;
+  iov.iov_len = static_cast<size_t>(length);
+  alignas(struct cmsghdr) char control[CMSG_SPACE(sizeof(uint32_t))];
+  struct msghdr msg = {};
+  msg.msg_iov = &iov;
+  msg.msg_iovlen = 1;
+  msg.msg_control = control;
+  msg.msg_controllen = sizeof(control);
+  do {
+    result = recvmsg(socket_, &msg, 0);
+  } while (result == -1 && GetSocketErrorCode() == EINTR_CODE);
+  if (result >= 0 && kernel_drops_counter_) {
+    for (struct cmsghdr* cmsg = CMSG_FIRSTHDR(&msg); cmsg;
+         cmsg = CMSG_NXTHDR(&msg, cmsg)) {
+      if (cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SO_RXQ_OVFL) {
+        uint32_t drops;
+        memcpy(&drops, CMSG_DATA(cmsg), sizeof(drops));
+        if (kernel_drop_count_valid_ && drops >= last_kernel_drop_count_) {
+          kernel_drops_counter_->Increment(drops - last_kernel_drop_count_);
+        }
+        last_kernel_drop_count_ = drops;
+        kernel_drop_count_valid_ = true;
+      }
+    }
+  }
+#else
   do {
     result = recvfrom(socket_, reinterpret_cast<char*>(buffer),
                       static_cast<int>(length), 0, NULL, 0);
   } while (result == -1 && GetSocketErrorCode() == EINTR_CODE);
+#endif
 
+  if (result >= 0) {
+    if (datagrams_received_counter_)
+      datagrams_received_counter_->Increment();
+    if (bytes_received_counter_)
+      bytes_received_counter_->Increment(static_cast<double>(result));
+    if (last_receive_timestamp_gauge_)
+      last_receive_timestamp_gauge_->SetToCurrentTime();
+  } else {
+    const int error_code = GetSocketErrorCode();
+#if defined(OS_WIN)
+    const bool is_timeout = error_code == WSAETIMEDOUT;
+#else
+    const bool is_timeout =
+        error_code == EAGAIN || error_code == EWOULDBLOCK;
+#endif
+    if (is_timeout) {
+      if (recv_timeouts_counter_)
+        recv_timeouts_counter_->Increment();
+    } else if (recv_errors_counter_) {
+      recv_errors_counter_->Increment();
+    }
+  }
   return result;
 }
 
@@ -302,6 +357,61 @@ bool UdpFile::Open() {
       return false;
     }
   }
+
+#if defined(__linux__)
+  // Ask the kernel to attach cumulative receive-queue drop counts to each
+  // datagram (read in Read() via recvmsg cmsg). Non-fatal when unsupported.
+  const int optval_one = 1;
+  if (setsockopt(new_socket.get(), SOL_SOCKET, SO_RXQ_OVFL,
+                 reinterpret_cast<const char*>(&optval_one),
+                 sizeof(optval_one)) < 0) {
+    LOG(WARNING) << "Failed to enable SO_RXQ_OVFL, kernel drop counts "
+                    "unavailable, error = "
+                 << GetSocketErrorCode();
+  }
+#endif
+
+  auto& registry = MetricsService::Instance().registry();
+  const prometheus::Labels labels{{"input", file_name()}};
+  bytes_received_counter_ =
+      &prometheus::BuildCounter()
+           .Name("shaka_udp_bytes_received_total")
+           .Help("UDP payload bytes received.")
+           .Register(registry)
+           .Add(labels);
+  datagrams_received_counter_ =
+      &prometheus::BuildCounter()
+           .Name("shaka_udp_datagrams_received_total")
+           .Help("UDP datagrams received.")
+           .Register(registry)
+           .Add(labels);
+  recv_timeouts_counter_ =
+      &prometheus::BuildCounter()
+           .Name("shaka_udp_recv_timeouts_total")
+           .Help("UDP receive timeouts (SO_RCVTIMEO expiries).")
+           .Register(registry)
+           .Add(labels);
+  recv_errors_counter_ =
+      &prometheus::BuildCounter()
+           .Name("shaka_udp_recv_errors_total")
+           .Help("UDP receive errors other than timeouts.")
+           .Register(registry)
+           .Add(labels);
+  last_receive_timestamp_gauge_ =
+      &prometheus::BuildGauge()
+           .Name("shaka_udp_last_receive_timestamp_seconds")
+           .Help("Unix time of the last received datagram.")
+           .Register(registry)
+           .Add(labels);
+#if defined(__linux__)
+  kernel_drops_counter_ =
+      &prometheus::BuildCounter()
+           .Name("shaka_udp_kernel_drops_total")
+           .Help("Datagrams dropped by the kernel receive queue "
+                 "(SO_RXQ_OVFL).")
+           .Register(registry)
+           .Add(labels);
+#endif
 
   socket_ = new_socket.release();
   return true;

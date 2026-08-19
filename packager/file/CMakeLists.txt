@@ -28,6 +28,7 @@ target_link_libraries(file
     absl::time
     kv_pairs
     libcurl
+    metrics
     status
     version)
 
@@ -50,6 +51,7 @@ add_executable(file_unittest
     memory_file_unittest.cc
     redundant_input_merger_unittest.cc
     redundant_udp_file_unittest.cc
+    udp_file_metrics_unittest.cc
     udp_options_unittest.cc)
 target_link_libraries(file_unittest
     absl::check
@@ -59,6 +61,7 @@ target_link_libraries(file_unittest
     gmock
     gtest
     gtest_main
+    metrics
     nlohmann_json
     test_web_server)
 add_gtest(file_unittest)
