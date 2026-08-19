@@ -16,24 +16,27 @@ namespace shaka {
 namespace media {
 
 // This stores data passed into OnNewSegment() for VOD.
+// Members are zero-initialized so partially-filled EventInfo instances are
+// safe to copy (GCC 13 -Wmaybe-uninitialized rejects copying indeterminate
+// members of the unused sub-structs).
 struct SegmentEventInfo {
-  int64_t start_time;
+  int64_t start_time = 0;
   // The below two fields are only useful for Segment.
-  int64_t duration;
-  uint64_t segment_file_size;
-  int64_t segment_number;
+  int64_t duration = 0;
+  uint64_t segment_file_size = 0;
+  int64_t segment_number = 0;
 };
 
 struct KeyFrameEvent {
-  int64_t timestamp;
+  int64_t timestamp = 0;
   // In segment for multi-segment, in subsegment for single-segment.
-  uint64_t start_offset_in_segment;
-  uint64_t size;
+  uint64_t start_offset_in_segment = 0;
+  uint64_t size = 0;
 };
 
 // This stores data passed into OnCueEvent() for VOD.
 struct CueEventInfo {
-  int64_t timestamp;
+  int64_t timestamp = 0;
   bool is_cue_out = true;
   double duration_in_seconds = 0;
 };
