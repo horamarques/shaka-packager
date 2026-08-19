@@ -13,11 +13,13 @@
 #include <vector>
 
 #include <absl/log/check.h>
+#include <absl/strings/str_cat.h>
 #include <absl/strings/str_format.h>
 
 #include <packager/hls/base/hls_notifier.h>
 #include <packager/media/event/combined_muxer_listener.h>
 #include <packager/media/event/hls_notify_muxer_listener.h>
+#include <packager/media/event/metrics_muxer_listener.h>
 #include <packager/media/event/mpd_notify_muxer_listener.h>
 #include <packager/media/event/multi_codec_muxer_listener.h>
 #include <packager/media/event/muxer_listener.h>
@@ -133,7 +135,14 @@ std::unique_ptr<MuxerListener> MuxerListenerFactory::CreateListener(
     multi_codec_listener->AddListener(std::move(combined_listener));
   }
 
-  return multi_codec_listener;
+  // Wrap so metrics observe each event exactly once, regardless of the
+  // multi-codec fan-out inside.
+  std::unique_ptr<CombinedMuxerListener> with_metrics(
+      new CombinedMuxerListener);
+  with_metrics->AddListener(
+      std::make_unique<MetricsMuxerListener>(absl::StrCat(stream_index)));
+  with_metrics->AddListener(std::move(multi_codec_listener));
+  return with_metrics;
 }
 
 std::unique_ptr<MuxerListener> MuxerListenerFactory::CreateHlsListener(

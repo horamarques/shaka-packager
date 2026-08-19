@@ -7,6 +7,7 @@
 add_library(media_event STATIC
     combined_muxer_listener.cc
     hls_notify_muxer_listener.cc
+    metrics_muxer_listener.cc
     mpd_notify_muxer_listener.cc
     multi_codec_muxer_listener.cc
     muxer_listener_factory.cc
@@ -18,6 +19,7 @@ target_link_libraries(media_event
     mpd_media_info_proto
     media_base
     media_codecs
+    metrics
 )
 
 add_library(mock_muxer_listener STATIC
@@ -30,6 +32,7 @@ target_link_libraries(mock_muxer_listener
 
 add_executable(media_event_unittest
     hls_notify_muxer_listener_unittest.cc
+    metrics_muxer_listener_unittest.cc
     muxer_listener_internal_unittest.cc
     mpd_notify_muxer_listener_unittest.cc
     multi_codec_muxer_listener_unittest.cc
@@ -46,5 +49,6 @@ target_link_libraries(media_event_unittest
     gtest_main
     media_event
     mock_muxer_listener
+    metrics
 )
 add_gtest(media_event_unittest)
