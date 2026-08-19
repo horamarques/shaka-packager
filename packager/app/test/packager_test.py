@@ -1485,6 +1485,16 @@ class PackagerFunctionalTest(PackagerAppTest):
     self.assertIsNotNone(match)
     self.assertGreater(float(match.group(1)), 0)
 
+    match = re.search(r'shaka_udp_bytes_received_total\{[^}]*\} ([0-9.e+]+)',
+                      metrics)
+    self.assertIsNotNone(match)
+    self.assertGreater(float(match.group(1)), 0)
+
+    match = re.search(r'shaka_live_buffer_depth_seconds\{[^}]*\} ([0-9.e+]+)',
+                      metrics)
+    self.assertIsNotNone(match)
+    self.assertGreater(float(match.group(1)), 0)
+
   def testMetricsFailoverSwitchCounter(self):
     # Failover mode: killing the active leg must show up on /metrics as a
     # switch and an unhealthy leg 0.

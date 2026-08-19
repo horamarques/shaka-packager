@@ -970,6 +970,9 @@ Packager::Packager() {}
 Packager::~Packager() {
   // Stop serving scrapes before the pipeline objects that back the
   // registered collectables are torn down.
+  // The exposer is process-global (MetricsService is a singleton), so this
+  // destructor owns stopping it under the one-Packager-per-process model; a
+  // future multi-instance refactor must revisit this.
   MetricsService::Instance().StopExposer();
 }
 

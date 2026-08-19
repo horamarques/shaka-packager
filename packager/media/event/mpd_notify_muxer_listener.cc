@@ -261,8 +261,9 @@ void MpdNotifyMuxerListener::OnNewSegment(const std::string& file_name,
 
 void MpdNotifyMuxerListener::OnCompletedSegment(int64_t duration,
                                                 uint64_t segment_file_size) {
-  mpd_notifier_->NotifyCompletedSegment(notification_id_.value(), duration,
-                                        segment_file_size);
+  const bool ok = mpd_notifier_->NotifyCompletedSegment(
+      notification_id_.value(), duration, segment_file_size);
+  CountManifestWrite(notification_id_.value(), ok);
 }
 
 void MpdNotifyMuxerListener::OnKeyFrame(int64_t timestamp,

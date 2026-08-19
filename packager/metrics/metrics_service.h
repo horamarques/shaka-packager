@@ -33,16 +33,19 @@ namespace shaka {
 /// returns an error.
 class MetricsService {
  public:
+  /// @return the process-wide MetricsService singleton.
   static MetricsService& Instance();
 
   /// Starts the /metrics HTTP listener on @a bind_address : @a port.
   /// Port 0 binds an ephemeral port (tests); see listening_port().
   /// @return an error Status if already running or the bind fails.
   Status StartExposer(const std::string& bind_address, int port);
+  /// Stops the /metrics HTTP listener, if running.
   void StopExposer();
   /// @return the actual listening port, or 0 when the exposer is stopped.
   int listening_port() const;
 
+  /// @return the process-wide Prometheus registry backing /metrics.
   prometheus::Registry& registry() { return *registry_; }
 
   /// Registers a scrape-time snapshot source. Held weakly: a destroyed

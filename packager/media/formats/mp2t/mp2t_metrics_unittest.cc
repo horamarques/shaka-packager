@@ -45,7 +45,7 @@ double MetricValue(const std::string& family_name) {
 // sums across every PID's series, so it cannot tell "this PID's gauge was
 // written" from "some other PID's gauge was written".
 double MetricValueForLabel(const std::string& family_name,
-                            const std::string& pid_value) {
+                           const std::string& pid_value) {
   double total = 0;
   bool found = false;
   for (const auto& family :

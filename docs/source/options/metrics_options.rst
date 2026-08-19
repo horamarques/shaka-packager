@@ -45,3 +45,8 @@ Counters are maintained whether or not the endpoint is enabled;
 ``--metrics_port`` only controls the HTTP listener. One packager process
 serves one endpoint; channel identity should come from deployment labels
 (e.g. one process per channel, scraped per pod).
+
+The endpoint is plain, unauthenticated HTTP. In production deployments,
+use ``--metrics_bind_address`` to scope it to a management interface or
+``127.0.0.1`` behind a sidecar/reverse proxy, or otherwise restrict access
+with network policy.

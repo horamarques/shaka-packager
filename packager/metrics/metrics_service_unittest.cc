@@ -10,7 +10,6 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
-#include <cstring>
 #include <string>
 
 #include <gtest/gtest.h>
