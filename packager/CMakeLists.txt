@@ -115,6 +115,7 @@ endif()
 # Subdirectories with their own CMakeLists.txt, all of whose targets are built.
 add_subdirectory(file)
 add_subdirectory(kv_pairs)
+add_subdirectory(metrics)
 add_subdirectory(media)
 add_subdirectory(hls)
 add_subdirectory(mpd)
