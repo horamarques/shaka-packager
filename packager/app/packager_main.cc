@@ -79,6 +79,15 @@ ABSL_FLAG(bool,
           single_threaded,
           false,
           "If enabled, only use one thread when generating content.");
+ABSL_FLAG(int32_t,
+          metrics_port,
+          0,
+          "Port for the Prometheus metrics HTTP endpoint (/metrics). "
+          "0 (default) disables the endpoint.");
+ABSL_FLAG(std::string,
+          metrics_bind_address,
+          "0.0.0.0",
+          "Bind address for the Prometheus metrics HTTP endpoint.");
 
 // From absl/log:
 ABSL_DECLARE_FLAG(int, stderrthreshold);
@@ -596,6 +605,15 @@ std::optional<PackagingParams> GetPackagingParams() {
   packaging_params.default_text_zero_bias_ms =
       absl::GetFlag(FLAGS_default_text_zero_bias_ms);
   packaging_params.output_media_info = absl::GetFlag(FLAGS_output_media_info);
+
+  packaging_params.metrics_port = absl::GetFlag(FLAGS_metrics_port);
+  if (packaging_params.metrics_port < 0 ||
+      packaging_params.metrics_port > 65535) {
+    LOG(ERROR) << "--metrics_port must be in [0, 65535].";
+    return std::nullopt;
+  }
+  packaging_params.metrics_bind_address =
+      absl::GetFlag(FLAGS_metrics_bind_address);
 
   MpdParams& mpd_params = packaging_params.mpd_params;
   mpd_params.mpd_output = absl::GetFlag(FLAGS_mpd_output);

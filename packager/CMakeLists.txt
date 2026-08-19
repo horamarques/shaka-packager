@@ -154,6 +154,7 @@ set(libpackager_deps
   wvm
   media_replicator
   media_trick_play
+  metrics
   mpd_builder
   mbedtls
   string_utils

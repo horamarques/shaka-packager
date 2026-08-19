@@ -83,6 +83,12 @@ struct PackagingParams {
   /// Buffer callback params.
   BufferCallbackParams buffer_callback_params;
 
+  /// Port for the Prometheus metrics HTTP endpoint (/metrics).
+  /// 0 (default) disables the endpoint.
+  int32_t metrics_port = 0;
+  /// Bind address for the metrics endpoint.
+  std::string metrics_bind_address = "0.0.0.0";
+
   /// CEA-608 / CEA-708 captions.
   std::vector<CeaCaption> closed_captions;
 

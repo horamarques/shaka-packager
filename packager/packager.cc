@@ -59,6 +59,7 @@
 #include <packager/media/formats/webvtt/webvtt_to_mp4_handler.h>
 #include <packager/media/replicator/replicator.h>
 #include <packager/media/trick_play/trick_play_handler.h>
+#include <packager/metrics/metrics_service.h>
 #include <packager/mpd/base/media_info.pb.h>
 #include <packager/mpd/base/simple_mpd_notifier.h>
 #include <packager/status.h>
@@ -962,7 +963,11 @@ struct Packager::PackagerInternal {
 
 Packager::Packager() {}
 
-Packager::~Packager() {}
+Packager::~Packager() {
+  // Stop serving scrapes before the pipeline objects that back the
+  // registered collectables are torn down.
+  MetricsService::Instance().StopExposer();
+}
 
 Status Packager::Initialize(
     const PackagingParams& packaging_params,
@@ -975,6 +980,11 @@ Status Packager::Initialize(
   if (!packaging_params.test_params.injected_library_version.empty()) {
     SetPackagerVersionForTesting(
         packaging_params.test_params.injected_library_version);
+  }
+
+  if (packaging_params.metrics_port > 0) {
+    RETURN_IF_ERROR(MetricsService::Instance().StartExposer(
+        packaging_params.metrics_bind_address, packaging_params.metrics_port));
   }
 
   std::unique_ptr<PackagerInternal> internal(new PackagerInternal);
