@@ -43,4 +43,4 @@ COPY --from=builder /shaka-packager/build/_deps/oatpp_swagger-src/res \
 EXPOSE 8088 9090 19100-19199
 
 ENTRYPOINT ["packager-api"]
-CMD ["--api_bind_address", "0.0.0.0"]
+CMD ["--api_bind_address", "0.0.0.0", "--packager_bin", "/usr/bin/packager"]
