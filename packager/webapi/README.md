@@ -79,7 +79,7 @@ Returns plaintext Prometheus format (prefix `shaka_`). Example metrics:
 - `shaka_segments_emitted_total`
 - `shaka_live_buffer_depth_seconds`
 
-See [Metrics options](../options/metrics_options.rst) for the full list.
+See [Metrics options](../../docs/source/options/metrics_options.rst) for the full list.
 
 ### Stopping an Event
 
@@ -120,7 +120,7 @@ The OpenAPI document is available at `/swagger/doc` (returns 302 redirect to `/a
 | `--api_bind_address` | string | `0.0.0.0` | Bind address (use `127.0.0.1` for local-only) |
 | `--api_token` | string | `` | Static bearer token for `/api/v1/*` endpoints (see Security below) |
 | `--metrics_port` | int32 | 0 | Prometheus endpoint port for the API process itself (0 disables) |
-| `--packager_bin` | string | auto-detected | Path to the packager binary spawned per event |
+| `--packager_bin` | string | packager next to packager-api | Path to the packager binary spawned per event |
 | `--event_metrics_port_range` | string | `19100-19199` | Inclusive port range allocated to per-event Prometheus endpoints |
 | `--event_log_dir` | string | `/tmp` | Directory for per-event stderr log files |
 
@@ -195,6 +195,33 @@ shaka_api_events_running 1
 - `STOPPING`: Drain or kill in progress
 - `STOPPED`: Packager exited (check `exit_code`)
 - `FAILED`: Spawn or configuration error
+
+## Errors
+
+API errors (4xx, 5xx) return JSON with a structured error body:
+
+```json
+{
+  "error": {
+    "code": "invalid_request",
+    "message": "streams required",
+    "detail": "field validation failed"
+  }
+}
+```
+
+Error codes:
+
+| Code | HTTP | Description |
+|------|------|-------------|
+| `invalid_request` | 400 | Request body validation failed (missing or malformed fields) |
+| `unauthorized` | 401 | Missing or invalid `Authorization: Bearer` token (when `--api_token` is set) |
+| `not_found` | 404 | Event does not exist |
+| `duplicate_event` | 409 | Event ID already exists |
+| `resource_exhausted` | 503 | Metrics port range exhausted or other resource limit |
+| `internal` | 500 | Packager spawn error or other internal failure |
+
+Always check the `code` field to handle errors programmatically; the `message` and `detail` fields are human-readable and may change.
 
 ## Logs and Debugging
 

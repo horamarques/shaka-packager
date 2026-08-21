@@ -148,6 +148,30 @@ Events transition through states:
 
 Query status with ``GET /api/v1/events/{event_id}`` to monitor transitions.
 
+Errors
+------
+
+API errors (4xx, 5xx) return JSON with a structured error body::
+
+    {
+      "error": {
+        "code": "invalid_request",
+        "message": "streams required",
+        "detail": "field validation failed"
+      }
+    }
+
+Error codes:
+
+* ``invalid_request`` (400) — Request body validation failed (missing or malformed fields)
+* ``unauthorized`` (401) — Missing or invalid ``Authorization: Bearer`` token (when ``--api_token`` is set)
+* ``not_found`` (404) — Event does not exist
+* ``duplicate_event`` (409) — Event ID already exists
+* ``resource_exhausted`` (503) — Metrics port range exhausted or other resource limit
+* ``internal`` (500) — Packager spawn error or other internal failure
+
+Always check the ``code`` field to handle errors programmatically; the ``message`` and ``detail`` fields are human-readable and may change.
+
 Metrics and Monitoring
 ----------------------
 
