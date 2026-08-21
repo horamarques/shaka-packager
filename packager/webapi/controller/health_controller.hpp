@@ -35,6 +35,15 @@ class HealthController : public oatpp::web::server::api::ApiController {
     return createDtoResponse(Status::CODE_200, dto);
   }
 
+  ENDPOINT_INFO(swaggerDoc) {
+    info->summary = "OpenAPI document (redirects to the generated doc)";
+  }
+  ENDPOINT("GET", "/swagger/doc", swaggerDoc) {
+    auto response = createResponse(Status::CODE_302, "");
+    response->putHeader("Location", "/api-docs/oas-3.0.0.json");
+    return response;
+  }
+
 #include OATPP_CODEGEN_END(ApiController)
 };
 
