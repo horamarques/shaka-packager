@@ -144,10 +144,17 @@ Status EventManager::CreateEvent(const std::string& event_id,
     return Status(error::UNKNOWN, "fork failed");
   }
   if (pid == 0) {
-    // Child: stderr (and stdout) -> log file, then exec.
+    // Child: stderr (and stdout) -> log file, then exec. Close every other
+    // inherited fd (the API's listening socket, accepted client
+    // connections, the metrics exposer socket) so it doesn't leak into the
+    // packager child; close() is async-signal-safe.
     dup2(log_fd, STDERR_FILENO);
     dup2(log_fd, STDOUT_FILENO);
-    close(log_fd);
+    const long open_max = sysconf(_SC_OPEN_MAX);
+    const int close_limit =
+        static_cast<int>(open_max > 0 && open_max < 65536 ? open_max : 65536);
+    for (int fd = 3; fd < close_limit; ++fd)
+      close(fd);
     execv(c_argv[0], c_argv.data());
     _exit(127);  // exec failed
   }
