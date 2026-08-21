@@ -20,3 +20,26 @@ target_link_libraries(webapi_core_unittest
     gtest_main
     webapi_core)
 add_gtest(webapi_core_unittest)
+
+add_executable(packager-api
+    controller/event_controller.cc
+    main.cc)
+target_compile_definitions(packager-api PRIVATE
+    OATPP_SWAGGER_RES_PATH="${OATPP_SWAGGER_RES_PATH}")
+# oatpp 1.3.0's own headers (Type.hpp, MemoryLabel.hpp, ApiController's
+# ContentHints aggregate init, etc.) trip several warnings under this
+# project's global -Wall -Wextra -Werror (packager/CMakeLists.txt). We don't
+# control that third-party header code, so demote errors back to warnings
+# for this target only, same spirit as third_party/oatpp/CMakeLists.txt's
+# `-w` on the oatpp/oatpp-swagger targets themselves.
+target_compile_options(packager-api PRIVATE -Wno-error)
+target_link_libraries(packager-api
+    absl::flags
+    absl::flags_parse
+    absl::log
+    absl::log_initialize
+    absl::strings
+    oatpp::oatpp
+    oatpp::oatpp-swagger
+    version
+    webapi_core)
