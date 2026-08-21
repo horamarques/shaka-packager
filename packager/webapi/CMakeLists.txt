@@ -44,3 +44,12 @@ target_link_libraries(packager-api
     oatpp::oatpp-swagger
     version
     webapi_core)
+
+if(NOT SKIP_INTEGRATION_TESTS)
+  add_test(NAME webapi_test_py
+    COMMAND "${Python3_EXECUTABLE}"
+            "${CMAKE_CURRENT_SOURCE_DIR}/test/webapi_test.py"
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR})
+  set_tests_properties(webapi_test_py PROPERTIES ENVIRONMENT
+      "PACKAGER_SRC_DIR=${CMAKE_SOURCE_DIR};PACKAGER_BIN=$<TARGET_FILE:packager>;PACKAGER_API_BIN=$<TARGET_FILE:packager-api>")
+endif()
