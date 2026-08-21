@@ -5,14 +5,16 @@
 # https://developers.google.com/open-source/licenses/bsd
 
 add_library(webapi_core STATIC
-    service/event_manager.cc)
+    service/event_manager.cc
+    service/event_spec.cc)
 target_link_libraries(webapi_core
     absl::strings
     absl::synchronization
     status)
 
 add_executable(webapi_core_unittest
-    service/event_manager_unittest.cc)
+    service/event_manager_unittest.cc
+    service/event_spec_unittest.cc)
 target_link_libraries(webapi_core_unittest
     gtest
     gtest_main
