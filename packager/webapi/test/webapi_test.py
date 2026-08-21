@@ -6,6 +6,7 @@
 # https://developers.google.com/open-source/licenses/bsd
 """End-to-end tests for packager-api (phase 1: event control)."""
 
+import http.client as http_client
 import json
 import os
 import socket
@@ -197,6 +198,16 @@ class WebApiTest(unittest.TestCase):
     self.assertEqual(200, http('GET', self.base + '/api/v1/events',
                                token='sesame')[0])
     self.assertEqual(200, http('GET', self.base + '/health')[0])
+
+    # Slash-run variants of the same path must not bypass auth. urllib
+    # normalizes URLs before sending, so issue these with a raw path via
+    # http.client instead.
+    for raw_path in ('//api/v1/events', '/api//v1/events'):
+      conn = http_client.HTTPConnection('127.0.0.1', self.api_port,
+                                        timeout=10)
+      conn.request('GET', raw_path)
+      self.assertEqual(401, conn.getresponse().status, raw_path)
+      conn.close()
 
 
 if __name__ == '__main__':
