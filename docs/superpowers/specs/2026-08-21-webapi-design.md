@@ -15,12 +15,15 @@ unitary media operations (package/encrypt/inspect single segments, generate
 manifests and DRM artifacts on demand) so the fork can serve as the media
 engine of a streaming origin server.
 
-Delivered in three phases against one spec:
+Delivered in four phases against one spec:
 - **Phase 1 — Event control**: API server, OpenAPI/Swagger, subprocess
   event supervision.
 - **Phase 2 — JIT origin loop**: the eleven low-effort unitary ops that
   reuse one shared in-process pipeline harness.
 - **Phase 3 — Advanced ops**: the six ops needing deeper pipeline work.
+- **Phase 4 — Containerized deployment**: Docker image for packager-api
+  and a docker-compose stack with Prometheus scraping the API and every
+  event via HTTP service discovery.
 
 Non-goals (all phases):
 - Auto-restart policies for events (exit code is reported; the operator or
@@ -204,6 +207,53 @@ configuration:
 | `POST /api/v1/ops/convert-text` | WebVTT<->TTML segment conversion | one-shot graph over the in-tree text handlers |
 | `POST /api/v1/ops/rewindow-manifest` | MPD/M3U8 + new bounds -> rewritten manifest | manifest parse + window rewrite (catch-up/startover) |
 | `GET /api/v1/ops/iframe-playlist` | segment list -> EXT-X-I-FRAMES-ONLY playlist | built from keyframe-map data (native; replaces VxPackager's FFprobe approach, no FFmpeg dependency) |
+
+## Phase 4 — Containerized deployment
+
+### Docker image
+
+Extend the existing multi-stage `Dockerfile` (alpine builder pattern already
+in the repo root) with a `webapi` build target/stage that additionally
+builds and copies `packager-api` (plus the `packager` binary it spawns and
+the oatpp-swagger UI resources) into the runtime image. Entrypoint:
+`packager-api`; documented ports: `--api_port` 8088, `--metrics_port` 9090,
+and the event metrics range 19100-19199 (scraped inside the compose
+network; only 8088 needs publishing to the host by default).
+
+### Prometheus service discovery endpoint
+
+New API endpoint (phase 4, lands with the compose stack because that is its
+consumer):
+
+| Endpoint | Behavior |
+|---|---|
+| `GET /api/v1/prometheus/targets` | Prometheus `http_sd_configs` document: one target group per live event — `[{"targets": ["<host>:<event_metrics_port>"], "labels": {"event_id": "...", "job": "packager-event"}}]`. `<host>` defaults to the request's Host header hostname (the container's compose DNS name) and can be forced with `--advertised_host`. Honors `--api_token` like the rest of `/api/v1/*` (Prometheus supports bearer tokens in `http_sd_configs`). |
+
+This removes any static port-list hack: Prometheus discovers events as they
+start and drops them when they stop.
+
+### Compose stack
+
+`docker/docker-compose.yml` (new `docker/` directory, also the new home of
+the Dockerfile extension if the root Dockerfile cannot host a second stage
+cleanly):
+- `packager-api` service: the image above, one published port (8088),
+  volumes for output (`/var/media`) and logs.
+- `prometheus` service: official image, config with two scrape jobs —
+  `packager-api` (static target `packager-api:9090`) and `packager-events`
+  (`http_sd_configs` pointing at
+  `http://packager-api:8088/api/v1/prometheus/targets`, 5s refresh).
+- Prometheus UI published on 9091 (matching the manual demo convention).
+
+### Phase 4 testing
+
+- Unit: the targets endpoint returns a valid http_sd JSON document listing
+  exactly the RUNNING/STARTING events with their ports and event_id labels.
+- Integration (requires Docker; skipped automatically when the daemon is
+  unavailable): build the image, `docker compose up`, create a UDP event
+  through the published API, assert Prometheus's `/api/v1/targets` shows
+  the event target as `up`, tear down. Runs on Linux CI or a dev box with
+  Docker running; not part of the default ctest suite.
 
 ## Error model (all phases)
 
