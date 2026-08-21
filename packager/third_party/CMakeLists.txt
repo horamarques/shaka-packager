@@ -51,6 +51,7 @@ add_subdirectory(mbedtls EXCLUDE_FROM_ALL)
 add_subdirectory(mimalloc EXCLUDE_FROM_ALL)
 add_subdirectory(mongoose EXCLUDE_FROM_ALL)
 add_subdirectory(prometheus-cpp EXCLUDE_FROM_ALL)
+add_subdirectory(oatpp EXCLUDE_FROM_ALL)
 # Bundled civetweb (prometheus-cpp's HTTP exposer) and our vendored mongoose
 # (used by test_web_server) both define mg_printf/mg_base64_(en|de)code/
 # mg_url_(en|de)code with external linkage. Any binary that links both
