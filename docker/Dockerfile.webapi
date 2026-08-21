@@ -22,7 +22,11 @@ RUN apk add --no-cache \
 WORKDIR /shaka-packager
 COPY . /shaka-packager/
 RUN rm -rf build
-RUN cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -G Ninja
+# -Wno-error=deprecated-declarations: alpine GCC + the vendored abseil
+# (lts_20260107) hard-error on upstream's pointer-form absl::MutexLock;
+# suppressed here only, keeping upstream sources untouched.
+RUN cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -G Ninja \
+        -DCMAKE_CXX_FLAGS="-Wno-error=deprecated-declarations"
 RUN cmake --build build --parallel --target packager packager-api
 
 FROM alpine:3.19
