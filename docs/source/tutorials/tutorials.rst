@@ -9,6 +9,7 @@ Tutorials
    debugging.rst
    hls.rst
    live.rst
+   webapi.rst
    drm.rst
    text.rst
    ads.rst
