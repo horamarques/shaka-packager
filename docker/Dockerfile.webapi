@@ -1,0 +1,42 @@
+# Copyright 2026 Google LLC. All rights reserved.
+#
+# Use of this source code is governed by a BSD-style
+# license that can be found in the LICENSE file or at
+# https://developers.google.com/open-source/licenses/bsd
+#
+# Container image for packager-api, the web API service (spec phase 4).
+# Build from the repository root:
+#   docker build -f docker/Dockerfile.webapi -t packager-api .
+# Run:
+#   docker run -p 8088:8088 packager-api
+
+FROM alpine:3.19 AS builder
+
+# Same toolchain as the root Dockerfile; git + network are needed at
+# configure time (oatpp is vendored via FetchContent).
+RUN apk add --no-cache \
+        bash curl git \
+        bsd-compat-headers linux-headers \
+        build-base cmake ninja python3
+
+WORKDIR /shaka-packager
+COPY . /shaka-packager/
+RUN rm -rf build
+RUN cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -G Ninja
+RUN cmake --build build --parallel --target packager packager-api
+
+FROM alpine:3.19
+RUN apk add --no-cache libstdc++
+COPY --from=builder /shaka-packager/build/packager/packager \
+                    /shaka-packager/build/packager/webapi/packager-api \
+                    /usr/bin/
+# The swagger-ui resource path is baked in at compile time
+# (OATPP_SWAGGER_RES_PATH); keep the same absolute path in this image.
+COPY --from=builder /shaka-packager/build/_deps/oatpp_swagger-src/res \
+                    /shaka-packager/build/_deps/oatpp_swagger-src/res
+
+# API port, API self-metrics port, per-event metrics port pool.
+EXPOSE 8088 9090 19100-19199
+
+ENTRYPOINT ["packager-api"]
+CMD ["--api_bind_address", "0.0.0.0"]

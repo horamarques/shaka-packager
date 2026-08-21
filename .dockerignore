@@ -11,3 +11,6 @@
 .repo
 .settings
 /out*
+/build*
+.superpowers/
+.worktrees/
