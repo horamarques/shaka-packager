@@ -196,6 +196,8 @@ shaka_api_events_running 1
 - `STOPPED`: Packager exited (check `exit_code`)
 - `FAILED`: Spawn or configuration error
 
+Terminal events (`STOPPED`/`FAILED`) are retained up to a cap (default 100) and then evicted oldest-first.
+
 ## Errors
 
 API errors (4xx, 5xx) return JSON with a structured error body:

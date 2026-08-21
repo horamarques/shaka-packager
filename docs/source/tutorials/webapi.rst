@@ -148,6 +148,9 @@ Events transition through states:
 
 Query status with ``GET /api/v1/events/{event_id}`` to monitor transitions.
 
+Terminal events (``STOPPED``/``FAILED``) are retained up to a cap (default 100)
+and then evicted oldest-first.
+
 Errors
 ------
 

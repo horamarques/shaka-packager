@@ -175,6 +175,38 @@ TEST_F(EventManagerTest, ShutdownStopsEverything) {
   EXPECT_EQ(EventState::kStopped, manager->GetEvent("b")->state);
 }
 
+TEST_F(EventManagerTest, EvictsOldestTerminalEventsBeyondCap) {
+  const std::string bin = WriteScript(
+      "child.sh", "trap 'exit 0' TERM\nwhile true; do sleep 0.1; done\n");
+  EventManager::Config config = MakeConfig(bin);
+  config.max_terminal_events = 2;
+  EventManager manager(config);
+
+  // Create, run, and drain-stop 3 events in order so their stopped_unix
+  // values are strictly increasing (each waits for kStopped before the
+  // next starts).
+  const char* ids[] = {"e1", "e2", "e3"};
+  for (const char* id : ids) {
+    ASSERT_TRUE(manager.CreateEvent(id, {}, 5).ok());
+    ASSERT_TRUE(WaitForState(&manager, id, EventState::kRunning));
+    ASSERT_TRUE(manager.StopEvent(id, /*kill_now=*/false).ok());
+    ASSERT_TRUE(WaitForState(&manager, id, EventState::kStopped));
+  }
+
+  // Creating a 4th, still-live event pushes the terminal count to 3,
+  // which exceeds the cap of 2 and evicts the oldest stopped event (e1).
+  ASSERT_TRUE(manager.CreateEvent("e4", {}, 5).ok());
+
+  EXPECT_FALSE(manager.GetEvent("e1").has_value());
+  EXPECT_TRUE(manager.GetEvent("e2").has_value());
+  EXPECT_TRUE(manager.GetEvent("e3").has_value());
+  EXPECT_TRUE(manager.GetEvent("e4").has_value());
+  EXPECT_EQ(3u, manager.ListEvents().size());  // e2, e3 (terminal) + e4 (live)
+
+  ASSERT_TRUE(manager.StopEvent("e4", /*kill_now=*/true).ok());
+  ASSERT_TRUE(WaitForState(&manager, "e4", EventState::kStopped));
+}
+
 TEST(EventStateNameTest, MatchesApiStrings) {
   EXPECT_EQ("STARTING", EventStateName(EventState::kStarting));
   EXPECT_EQ("RUNNING", EventStateName(EventState::kRunning));

@@ -47,6 +47,7 @@ class EventManager {
     int metrics_port_min = 19100;
     int metrics_port_max = 19199;
     int readiness_timeout_ms = 5000;      // STARTING -> RUNNING fallback
+    int max_terminal_events = 100;        // retention cap; oldest evicted
   };
 
   explicit EventManager(const Config& config);

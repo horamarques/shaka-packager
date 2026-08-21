@@ -161,6 +161,37 @@ Status EventManager::CreateEvent(const std::string& event_id,
   close(log_fd);
   snap.pid = pid;
 
+  // Evict oldest terminal (kStopped/kFailed) events beyond the retention
+  // cap so events_ doesn't grow without bound. Joining here is safe: by
+  // the time a record's state is terminal, MonitorEvent's final block has
+  // already released mutex_ for the last time, so join only waits on the
+  // thread's brief epilogue, not on any lock we're holding.
+  int terminal_count = 0;
+  for (const auto& entry : events_) {
+    const EventState state = entry.second->snapshot.state;
+    if (state == EventState::kStopped || state == EventState::kFailed)
+      ++terminal_count;
+  }
+  while (terminal_count > config_.max_terminal_events) {
+    auto oldest = events_.end();
+    for (auto it = events_.begin(); it != events_.end(); ++it) {
+      const EventState state = it->second->snapshot.state;
+      if (state != EventState::kStopped && state != EventState::kFailed)
+        continue;
+      if (oldest == events_.end() ||
+          it->second->snapshot.stopped_unix <
+              oldest->second->snapshot.stopped_unix) {
+        oldest = it;
+      }
+    }
+    if (oldest == events_.end())
+      break;  // shouldn't happen; guards against an infinite loop
+    if (oldest->second->monitor.joinable())
+      oldest->second->monitor.join();
+    events_.erase(oldest);
+    --terminal_count;
+  }
+
   EventRecord* raw = record.get();
   record->monitor = std::thread(&EventManager::MonitorEvent, this, raw);
   events_[event_id] = std::move(record);
