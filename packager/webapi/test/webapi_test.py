@@ -46,18 +46,35 @@ def http(method, url, body=None, token=None):
 
 class WebApiTest(unittest.TestCase):
 
+  def _spawn_api(self, args):
+    # addCleanup (unlike tearDown) also runs if setUp itself raises, so a
+    # server spawned here is always reaped even when the readiness loop
+    # below calls self.fail().
+    api = subprocess.Popen(args, stdout=subprocess.PIPE,
+                           stderr=subprocess.PIPE)
+    self.addCleanup(self._stop_api, api)
+    return api
+
+  def _stop_api(self, api):
+    api.terminate()  # no-op if already exited
+    try:
+      api.communicate(timeout=30)
+    except subprocess.TimeoutExpired:
+      api.kill()
+      api.communicate()
+
   def setUp(self):
     self.tmp_dir = tempfile.mkdtemp()
     self.api_port = free_port(socket.SOCK_STREAM)
     self.base = 'http://127.0.0.1:%d' % self.api_port
-    self.api = subprocess.Popen([
+    self.api = self._spawn_api([
         API_BIN,
         '--api_port', str(self.api_port),
         '--api_bind_address', '127.0.0.1',
         '--packager_bin', PACKAGER_BIN,
         '--event_log_dir', self.tmp_dir,
         '--event_metrics_port_range', '20500-20599',
-    ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    ])
     # Wait for the server to accept connections.
     for _ in range(50):
       try:
@@ -68,10 +85,6 @@ class WebApiTest(unittest.TestCase):
         time.sleep(0.2)
     self.fail('packager-api did not come up; stderr:\n%s'
               % self.api.stderr.peek().decode('utf8', 'replace'))
-
-  def tearDown(self):
-    self.api.terminate()
-    self.api.communicate(timeout=30)
 
   def wait_for_state(self, event_id, state, deadline=15):
     last = None
@@ -167,13 +180,13 @@ class WebApiTest(unittest.TestCase):
     self.api.communicate(timeout=30)
     self.api_port = free_port(socket.SOCK_STREAM)
     self.base = 'http://127.0.0.1:%d' % self.api_port
-    self.api = subprocess.Popen([
+    self.api = self._spawn_api([
         API_BIN, '--api_port', str(self.api_port),
         '--api_bind_address', '127.0.0.1',
         '--packager_bin', PACKAGER_BIN,
         '--event_log_dir', self.tmp_dir,
         '--api_token', 'sesame',
-    ], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    ])
     for _ in range(50):
       try:
         if http('GET', self.base + '/health')[0] == 200:
