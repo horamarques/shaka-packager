@@ -23,9 +23,11 @@
 #include <oatpp/web/server/HttpConnectionHandler.hpp>
 #include <oatpp/web/server/HttpRouter.hpp>
 
+#include <packager/metrics/metrics_service.h>
 #include <packager/version/version.h>
 #include <packager/webapi/controller/event_controller.hpp>
 #include <packager/webapi/controller/health_controller.hpp>
+#include <packager/webapi/service/auth_interceptor.hpp>
 #include <packager/webapi/service/event_manager.h>
 
 ABSL_FLAG(int32_t, api_port, 8088, "HTTP port for the web API.");
@@ -35,6 +37,10 @@ ABSL_FLAG(std::string,
           "",
           "Static bearer token. When set, /api/v1/* requests require "
           "'Authorization: Bearer <token>'. /health and /swagger stay open.");
+ABSL_FLAG(int32_t,
+          metrics_port,
+          0,
+          "Prometheus endpoint for the API process itself. 0 disables.");
 ABSL_FLAG(std::string,
           packager_bin,
           "",
@@ -117,6 +123,20 @@ int RunServer(int argc, char** argv) {
 
   auto connection_handler =
       oatpp::web::server::HttpConnectionHandler::createShared(router);
+  connection_handler->addRequestInterceptor(
+      std::make_shared<AuthInterceptor>(absl::GetFlag(FLAGS_api_token)));
+
+  if (absl::GetFlag(FLAGS_metrics_port) > 0) {
+    const shaka::Status metrics_status =
+        MetricsService::Instance().StartExposer(
+            absl::GetFlag(FLAGS_api_bind_address),
+            absl::GetFlag(FLAGS_metrics_port));
+    if (!metrics_status.ok()) {
+      std::cerr << metrics_status.ToString() << std::endl;
+      return 1;
+    }
+  }
+
   auto connection_provider =
       oatpp::network::tcp::server::ConnectionProvider::createShared(
           oatpp::network::Address(
@@ -135,6 +155,7 @@ int RunServer(int argc, char** argv) {
 
   std::cout << "shutting down; draining events" << std::endl;
   event_manager->Shutdown();
+  MetricsService::Instance().StopExposer();
   oatpp::base::Environment::destroy();
   return 0;
 }

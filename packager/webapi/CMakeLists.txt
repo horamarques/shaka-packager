@@ -39,6 +39,7 @@ target_link_libraries(packager-api
     absl::log
     absl::log_initialize
     absl::strings
+    metrics
     oatpp::oatpp
     oatpp::oatpp-swagger
     version
