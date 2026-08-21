@@ -49,7 +49,7 @@ class EventManagerTest : public testing::Test {
     config.log_dir = temp_dir_;
     config.metrics_port_min = 21100;
     config.metrics_port_max = 21102;  // pool of 3 for exhaustion tests
-    config.readiness_timeout_ms = 500;
+    config.readiness_timeout_ms = 200;
     return config;
   }
 
@@ -65,18 +65,38 @@ class EventManagerTest : public testing::Test {
     return false;
   }
 
+  // Polls for |path| to exist, up to |deadline_ms|. Used so tests only
+  // signal a fake child once it has installed its trap handler (the
+  // manager's RUNNING transition is time-based, not trap-aware, so it does
+  // not by itself guarantee the trap is installed yet).
+  bool WaitForFile(const std::string& path, int deadline_ms) {
+    const int iterations = deadline_ms / 20;
+    for (int i = 0; i < iterations; ++i) {
+      struct stat st;
+      if (stat(path.c_str(), &st) == 0)
+        return true;
+      std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    return false;
+  }
+
   std::string temp_dir_;
 };
 
 TEST_F(EventManagerTest, LifecycleRunningThenDrainStop) {
-  // Child logs a line, handles TERM by exiting 0, sleeps forever.
+  // Child logs a line, handles TERM by exiting 0, sleeps forever. Touches
+  // a sentinel file right after installing the trap so the test can wait
+  // for the trap to actually be armed before sending TERM (the manager's
+  // RUNNING transition is a readiness-timeout fallback, not proof the
+  // trap is installed).
   const std::string bin = WriteScript(
       "child.sh", "echo hello-from-child >&2\ntrap 'exit 0' TERM\n"
-                  "while true; do sleep 0.1; done\n");
+                  "touch \"$0.ready\"\nwhile true; do sleep 0.1; done\n");
   EventManager manager(MakeConfig(bin));
   ASSERT_TRUE(manager.CreateEvent("ev1", {"--fake_flag", "x"}, 5).ok());
 
   ASSERT_TRUE(WaitForState(&manager, "ev1", EventState::kRunning));
+  ASSERT_TRUE(WaitForFile(bin + ".ready", 5000));
   auto snap = manager.GetEvent("ev1");
   ASSERT_TRUE(snap.has_value());
   EXPECT_GT(snap->pid, 0);
@@ -98,11 +118,16 @@ TEST_F(EventManagerTest, LifecycleRunningThenDrainStop) {
 }
 
 TEST_F(EventManagerTest, KillEscalationWhenTermIgnored) {
+  // Sentinel guards against sending TERM before the trap is armed: an
+  // early TERM would kill the child outright (default disposition) instead
+  // of being ignored, which would falsify the 137/SIGKILL assertion below.
   const std::string bin = WriteScript(
-      "stubborn.sh", "trap '' TERM\nwhile true; do sleep 0.1; done\n");
+      "stubborn.sh",
+      "trap '' TERM\ntouch \"$0.ready\"\nwhile true; do sleep 0.1; done\n");
   EventManager manager(MakeConfig(bin));
   ASSERT_TRUE(manager.CreateEvent("ev1", {}, /*stop_timeout_seconds=*/1).ok());
   ASSERT_TRUE(WaitForState(&manager, "ev1", EventState::kRunning));
+  ASSERT_TRUE(WaitForFile(bin + ".ready", 5000));
 
   ASSERT_TRUE(manager.StopEvent("ev1", /*kill_now=*/false).ok());
   // TERM ignored -> after 1s timeout the manager SIGKILLs.
