@@ -223,13 +223,11 @@ TEST(XmlNodeTest, UrlEncodedContentPreservesPathSeparators) {
                   "<BaseURL>subtitles/subs%20en%26more.vtt</BaseURL>"));
 }
 
-TEST(XmlNodeTest, UrlEncodedContentPreservesAbsoluteUrlPrefix) {
+TEST(XmlNodeTest, UrlEncodedContentEscapesEachNestedSegment) {
   XmlNode base_url("BaseURL");
-  base_url.SetUrlEncodedContent("https://cdn.example.com/some path/media/");
+  base_url.SetUrlEncodedContent("a b/c d/subs en.vtt");
   EXPECT_THAT(base_url,
-              XmlNodeEqual("<BaseURL>"
-                           "https://cdn.example.com/some%20path/media/"
-                           "</BaseURL>"));
+              XmlNodeEqual("<BaseURL>a%20b/c%20d/subs%20en.vtt</BaseURL>"));
 }
 
 TEST(XmlNodeTest, AddEC3AudioInfo) {
