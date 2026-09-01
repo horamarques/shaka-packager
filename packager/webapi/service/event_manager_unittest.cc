@@ -30,7 +30,8 @@ class EventManagerTest : public testing::Test {
   }
   void TearDown() override {
     std::string cmd = "rm -rf " + temp_dir_;
-    system(cmd.c_str());
+    int rc = system(cmd.c_str());
+    (void)rc;  // best-effort cleanup; gcc -Werror=unused-result
   }
 
   // Writes an executable shell script and returns its path.
