@@ -391,7 +391,7 @@ bool SimpleHlsNotifier::NotifyNewPartialSegment(uint32_t stream_id,
                                                 bool is_independent,
                                                 uint64_t start_byte_offset,
                                                 uint64_t size) {
-  absl::MutexLock lock(&lock_);
+  absl::MutexLock lock(lock_);
   auto stream_iterator = stream_map_.find(stream_id);
   if (stream_iterator == stream_map_.end()) {
     LOG(ERROR) << "Cannot find stream with ID: " << stream_id;

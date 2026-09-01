@@ -51,7 +51,8 @@ class WebApiTest(unittest.TestCase):
     # addCleanup (unlike tearDown) also runs if setUp itself raises, so a
     # server spawned here is always reaped even when the readiness loop
     # below calls self.fail().
-    api = subprocess.Popen(args, stdout=subprocess.PIPE,
+    # Lifetime is managed by addCleanup below, not a with-block.
+    api = subprocess.Popen(args, stdout=subprocess.PIPE,  # pylint: disable=consider-using-with
                            stderr=subprocess.PIPE)
     self.addCleanup(self._stop_api, api)
     return api
