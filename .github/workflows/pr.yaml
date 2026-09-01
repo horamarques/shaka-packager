@@ -12,9 +12,11 @@ name: Build and Test PR
 # Runs when a pull request is opened or updated.
 #
 # Can also be run manually for debugging purposes.
+# Fork note (horamarques/shaka-packager): the automatic pull_request trigger
+# is disabled — this fork is validated through pyshaka's CI (pin bump builds
+# libpackager and runs the full binding test suite). Run this workflow
+# manually via workflow_dispatch when upstream-style coverage is wanted.
 on:
-  pull_request:
-    types: [opened, synchronize, reopened]
   workflow_dispatch:
     inputs:
       ref:
