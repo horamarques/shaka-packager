@@ -30,6 +30,22 @@ struct BufferCallbackParams {
   std::function<
       int64_t(const std::string& name, const void* buffer, uint64_t size)>
       write_func;
+  /// Optional. If this function is specified, packager calls it every time a
+  /// callback output is opened for writing, before any @a write_func call for
+  /// that open, with @a name as passed to @a write_func and @a mode set to the
+  /// mode the writer asked for: "w"/"wb" to REPLACE whatever was previously
+  /// written under that name, "a"/"ab" to APPEND to it. Reads are not
+  /// reported.
+  ///
+  /// A callback file has no file position and cannot truncate, so without this
+  /// signal a consumer cannot distinguish a rewrite from an append and simply
+  /// accumulates both. That matters: the mp4 segmenters write the init segment
+  /// once from DoInitialize() and then rewrite it from DoFinalize() to add the
+  /// media duration (mehd), both with mode "w". A consumer that ignores the
+  /// mode ends up with two concatenated init segments, of which parsers read
+  /// the first — the one without the duration.
+  std::function<void(const std::string& name, const std::string& mode)>
+      open_func;
 };
 
 }  // namespace shaka

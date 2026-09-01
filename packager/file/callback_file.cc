@@ -66,16 +66,22 @@ bool CallbackFile::Tell(uint64_t* position) {
 }
 
 bool CallbackFile::Open() {
-  // Mode "a" is accepted and treated the same as "w": callback files have no
-  // notion of truncation or a file position, writes are simply forwarded to
-  // write_func keyed by name, so append and write are indistinguishable here.
-  // Low-latency segmenters open in-progress segments with mode "a".
+  // Modes "w" and "a" are both accepted. A callback file has no file position
+  // and cannot truncate itself, so the distinction is forwarded to the caller
+  // through open_func instead of acted on here: "w" means the writer is
+  // REPLACING what it last wrote under this name, "a" means it is extending
+  // it. Low-latency segmenters open in-progress segments with mode "a"; the
+  // mp4 segmenters rewrite the init segment with mode "w".
   if (file_mode_ != "r" && file_mode_ != "w" && file_mode_ != "a" &&
       file_mode_ != "rb" && file_mode_ != "wb" && file_mode_ != "ab") {
     LOG(ERROR) << "CallbackFile does not support file mode " << file_mode_;
     return false;
   }
-  return ParseCallbackFileName(file_name(), &callback_params_, &name_);
+  if (!ParseCallbackFileName(file_name(), &callback_params_, &name_))
+    return false;
+  if (file_mode_ != "r" && file_mode_ != "rb" && callback_params_->open_func)
+    callback_params_->open_func(name_, file_mode_);
+  return true;
 }
 
 }  // namespace shaka

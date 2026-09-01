@@ -186,6 +186,76 @@ TEST(CallbackFileTest, AppendModeBehavesLikeWrite) {
             writer->Write(kBuffer, kBufferSize));
 }
 
+TEST(CallbackFileTest, OpenFuncReportsWriteMode) {
+  // "w" tells the consumer the writer is REPLACING what it last wrote under
+  // this name. CallbackFile cannot truncate itself, so forwarding the mode is
+  // the only way a consumer can honour it.
+  MockFunction<void(const std::string& name, const std::string& mode)>
+      mock_open_func;
+  BufferCallbackParams callback_params;
+  callback_params.open_func = mock_open_func.AsStdFunction();
+
+  std::string file_name =
+      File::MakeCallbackFileName(callback_params, kBufferLabel);
+
+  EXPECT_CALL(mock_open_func, Call(StrEq(kBufferLabel), StrEq("w")));
+
+  std::unique_ptr<File, FileCloser> writer(File::Open(file_name.c_str(), "w"));
+  ASSERT_TRUE(writer);
+}
+
+TEST(CallbackFileTest, OpenFuncReportsAppendMode) {
+  MockFunction<void(const std::string& name, const std::string& mode)>
+      mock_open_func;
+  BufferCallbackParams callback_params;
+  callback_params.open_func = mock_open_func.AsStdFunction();
+
+  std::string file_name =
+      File::MakeCallbackFileName(callback_params, kBufferLabel);
+
+  EXPECT_CALL(mock_open_func, Call(StrEq(kBufferLabel), StrEq("a")));
+
+  std::unique_ptr<File, FileCloser> writer(File::Open(file_name.c_str(), "a"));
+  ASSERT_TRUE(writer);
+}
+
+TEST(CallbackFileTest, OpenFuncNotCalledForRead) {
+  // A read carries no replace-or-append intent, so it is not reported.
+  MockFunction<void(const std::string& name, const std::string& mode)>
+      mock_open_func;
+  BufferCallbackParams callback_params;
+  callback_params.open_func = mock_open_func.AsStdFunction();
+
+  std::string file_name =
+      File::MakeCallbackFileName(callback_params, kBufferLabel);
+
+  EXPECT_CALL(mock_open_func, Call(_, _)).Times(0);
+
+  std::unique_ptr<File, FileCloser> reader(File::Open(file_name.c_str(), "r"));
+  ASSERT_TRUE(reader);
+}
+
+TEST(CallbackFileTest, OpenFuncNotDefined) {
+  // open_func is optional: opening for write without one still succeeds.
+  MockFunction<int64_t(const std::string& name, const void* buffer,
+                       uint64_t length)>
+      mock_write_func;
+  BufferCallbackParams callback_params;
+  callback_params.write_func = mock_write_func.AsStdFunction();
+
+  std::string file_name =
+      File::MakeCallbackFileName(callback_params, kBufferLabel);
+
+  EXPECT_CALL(mock_write_func,
+              Call(StrEq(kBufferLabel), Eq(kBuffer), kBufferSize))
+      .WillOnce(Return(kBufferSize));
+
+  std::unique_ptr<File, FileCloser> writer(File::Open(file_name.c_str(), "w"));
+  ASSERT_TRUE(writer);
+  ASSERT_EQ(static_cast<int64_t>(kBufferSize),
+            writer->Write(kBuffer, kBufferSize));
+}
+
 TEST(CallbackFileTest, WriteFunctionNotDefined) {
   BufferCallbackParams callback_params;
   std::string file_name =
