@@ -66,8 +66,12 @@ bool CallbackFile::Tell(uint64_t* position) {
 }
 
 bool CallbackFile::Open() {
-  if (file_mode_ != "r" && file_mode_ != "w" && file_mode_ != "rb" &&
-      file_mode_ != "wb") {
+  // Mode "a" is accepted and treated the same as "w": callback files have no
+  // notion of truncation or a file position, writes are simply forwarded to
+  // write_func keyed by name, so append and write are indistinguishable here.
+  // Low-latency segmenters open in-progress segments with mode "a".
+  if (file_mode_ != "r" && file_mode_ != "w" && file_mode_ != "a" &&
+      file_mode_ != "rb" && file_mode_ != "wb" && file_mode_ != "ab") {
     LOG(ERROR) << "CallbackFile does not support file mode " << file_mode_;
     return false;
   }

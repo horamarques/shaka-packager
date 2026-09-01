@@ -163,6 +163,29 @@ TEST(CallbackFileTest, WriteFailed) {
   ASSERT_EQ(kFileError, writer->Write(kBuffer, kBufferSize));
 }
 
+TEST(CallbackFileTest, AppendModeBehavesLikeWrite) {
+  // Low-latency segmenters open the in-progress segment with mode "a".
+  // CallbackFile has no truncate/position semantics, so "a" forwards writes
+  // to write_func exactly like "w".
+  MockFunction<int64_t(const std::string& name, const void* buffer,
+                       uint64_t length)>
+      mock_write_func;
+  BufferCallbackParams callback_params;
+  callback_params.write_func = mock_write_func.AsStdFunction();
+
+  std::string file_name =
+      File::MakeCallbackFileName(callback_params, kBufferLabel);
+
+  EXPECT_CALL(mock_write_func,
+              Call(StrEq(kBufferLabel), Eq(kBuffer), kBufferSize))
+      .WillOnce(Return(kBufferSize));
+
+  std::unique_ptr<File, FileCloser> writer(File::Open(file_name.c_str(), "a"));
+  ASSERT_TRUE(writer);
+  ASSERT_EQ(static_cast<int64_t>(kBufferSize),
+            writer->Write(kBuffer, kBufferSize));
+}
+
 TEST(CallbackFileTest, WriteFunctionNotDefined) {
   BufferCallbackParams callback_params;
   std::string file_name =
