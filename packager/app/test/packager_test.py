@@ -2760,6 +2760,19 @@ class PackagerCommandParsingTest(PackagerAppTest):
         self._GetStreams(['video']), self._GetFlags(encryption=True))
     self.assertEqual(packaging_result, 1)
 
+  def testRejectsEpochWithStartSegmentNumber(self):
+    packaging_result = self.packager.Package(
+        self._GetStreams(['video']),
+        self._GetFlags() + ['--segment_number_epoch', '2026-01-01T00:00:00Z',
+                            '--start_segment_number', '5'])
+    self.assertEqual(packaging_result, 1)
+
+  def testRejectsMalformedEpoch(self):
+    packaging_result = self.packager.Package(
+        self._GetStreams(['video']),
+        self._GetFlags() + ['--segment_number_epoch', 'not-a-timestamp'])
+    self.assertEqual(packaging_result, 1)
+
   def testEncryptionWithInvalidPsshValue1(self):
     packaging_result = self.packager.Package(
         self._GetStreams(['video']),

@@ -42,6 +42,7 @@
 #include <absl/log/log.h>
 #include <absl/strings/numbers.h>
 #include <absl/strings/str_format.h>
+#include <absl/time/time.h>
 
 #include <packager/app/ad_cue_generator_flags.h>
 #include <packager/app/cpix_encryption_flags.h>
@@ -436,6 +437,29 @@ std::optional<PackagingParams> GetPackagingParams() {
       absl::GetFlag(FLAGS_start_segment_number);
   chunking_params.ts_ttx_heartbeat_shift =
       absl::GetFlag(FLAGS_ts_ttx_heartbeat_shift);
+
+  const std::string segment_number_epoch_str =
+      absl::GetFlag(FLAGS_segment_number_epoch);
+  if (!segment_number_epoch_str.empty()) {
+    absl::Time segment_number_epoch;
+    std::string parse_error;
+    if (!absl::ParseTime(absl::RFC3339_full, segment_number_epoch_str,
+                         &segment_number_epoch, &parse_error)) {
+      LOG(ERROR) << "Invalid --segment_number_epoch '"
+                 << segment_number_epoch_str << "': " << parse_error;
+      return std::nullopt;
+    }
+    // absl has no "was this flag set explicitly" predicate, so detect the
+    // conflict by comparing against the documented default of 1.
+    if (absl::GetFlag(FLAGS_start_segment_number) != 1) {
+      LOG(ERROR) << "--segment_number_epoch cannot be combined with an "
+                    "explicit --start_segment_number: epoch-anchored "
+                    "numbering must be identical across instances.";
+      return std::nullopt;
+    }
+    chunking_params.segment_number_epoch_us =
+        absl::ToUnixMicros(segment_number_epoch);
+  }
 
   // In LL-HLS, partial segments should be grouped to the advertised part
   // target duration. If the user did not set an explicit --fragment_duration,

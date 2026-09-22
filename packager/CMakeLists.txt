@@ -223,6 +223,7 @@ target_link_libraries(packager
   # See https://github.com/abseil/abseil-cpp/blob/c14dfbf9/absl/log/CMakeLists.txt#L464-L467
   $<LINK_LIBRARY:WHOLE_ARCHIVE,absl::log_flags>
   absl::strings
+  absl::time
   hex_bytes_flags
   libpackager
   license_notice
