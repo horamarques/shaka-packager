@@ -35,7 +35,7 @@ Status ValidateSegmentTemplate(const std::string& segment_template);
 /// @return The segment name with identifier substituted.
 std::string GetSegmentName(const std::string& segment_template,
                            int64_t segment_start_time,
-                           uint32_t segment_number,
+                           int64_t segment_number,
                            uint32_t bandwidth);
 
 }  // namespace media
