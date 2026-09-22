@@ -702,6 +702,8 @@ std::optional<PackagingParams> GetPackagingParams() {
   hls_params.default_text_language = absl::GetFlag(FLAGS_default_text_language);
   hls_params.media_sequence_number =
       absl::GetFlag(FLAGS_hls_media_sequence_number);
+  hls_params.epoch_anchored_segment_numbers =
+      chunking_params.segment_number_epoch_us.has_value();
   hls_params.start_time_offset = absl::GetFlag(FLAGS_hls_start_time_offset);
   hls_params.create_session_keys = absl::GetFlag(FLAGS_create_session_keys);
   hls_params.add_program_date_time = absl::GetFlag(FLAGS_add_program_date_time);

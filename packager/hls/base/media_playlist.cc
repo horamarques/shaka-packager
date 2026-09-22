@@ -566,11 +566,20 @@ void MediaPlaylist::AddSegment(const std::string& file_name,
                                uint64_t size,
                                int64_t segment_number) {
   // Adopt an epoch-anchored segment number as the media sequence number, but
-  // only before any segment has been added; a forced hls_params_ seed (which
-  // pushes a DiscontinuityEntry in the constructor) or a later segment must
-  // not be overridden.
-  if (entries_.empty() && segment_number > media_sequence_number_)
+  // only when epoch-anchored numbering is actually in use: ChunkingHandler
+  // assigns an ordinary sequential segment_number_++ (starting at 1) to every
+  // segment regardless of the epoch flag, and that must keep being discarded
+  // exactly as before, or EXT-X-MEDIA-SEQUENCE would appear where it never
+  // used to. Also only on the very first call to AddSegment() (see
+  // add_segment_called_); a forced hls_params_ seed (which pushes a
+  // DiscontinuityEntry in the constructor, so entries_ is not empty here) or
+  // a later segment must not be overridden.
+  if (!add_segment_called_ && entries_.empty() &&
+      hls_params_.epoch_anchored_segment_numbers &&
+      segment_number > media_sequence_number_) {
     media_sequence_number_ = segment_number;
+  }
+  add_segment_called_ = true;
 
   if (stream_type_ == MediaPlaylistStreamType::kVideoIFramesOnly) {
     if (key_frames_.empty())
@@ -714,8 +723,8 @@ void MediaPlaylist::SetSiblingPlaylists(
   sibling_playlists_ = siblings;
 }
 
-uint32_t MediaPlaylist::GetLastMediaSequenceNumber() const {
-  uint32_t segment_count = 0;
+int64_t MediaPlaylist::GetLastMediaSequenceNumber() const {
+  int64_t segment_count = 0;
   for (const auto& entry : entries_) {
     if (entry->type() == HlsEntry::EntryType::kExtInf)
       segment_count++;
@@ -882,7 +891,7 @@ bool MediaPlaylist::WriteToFile(const std::filesystem::path& file_path,
       playlist_type != HlsPlaylistType::kVod && !sibling_playlists_.empty()) {
     for (const auto* sibling : sibling_playlists_) {
       std::string report = absl::StrFormat(
-          "#EXT-X-RENDITION-REPORT:URI=\"%s\",LAST-MSN=%u",
+          "#EXT-X-RENDITION-REPORT:URI=\"%s\",LAST-MSN=%d",
           sibling->file_name().c_str(),
           sibling->GetLastMediaSequenceNumber());
       int last_part = sibling->GetLastPartIndex();

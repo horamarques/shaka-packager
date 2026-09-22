@@ -219,7 +219,7 @@ class MediaPlaylist {
       const std::vector<const MediaPlaylist*>& siblings);
 
   /// @return the media sequence number of the last segment in this playlist.
-  uint32_t GetLastMediaSequenceNumber() const;
+  int64_t GetLastMediaSequenceNumber() const;
 
   /// @return the index of the last partial segment (0-based), or -1 if there
   ///         are no partial segments.
@@ -347,6 +347,11 @@ class MediaPlaylist {
   std::vector<std::string> characteristics_;
   bool forced_subtitle_ = false;
   int64_t media_sequence_number_ = 0;
+  // True once the first call to AddSegment() has been observed. Latched
+  // (rather than inferred from entries_.empty()) so that a live playlist
+  // whose entries_ is later fully evicted by SlideWindow() cannot be
+  // mistaken for "no segment added yet" and re-trigger epoch adoption below.
+  bool add_segment_called_ = false;
   bool inserted_discontinuity_tag_ = false;
   int discontinuity_sequence_number_ = 0;
 
