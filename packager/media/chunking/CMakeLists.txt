@@ -7,6 +7,7 @@
 add_library(media_chunking STATIC
     chunking_handler.cc
     cue_alignment_handler.cc
+    epoch_segment_numbering.cc
     scte35_to_cue_event_handler.cc
     scte35_to_cue_event_handler.h
     segment_coordinator.cc
@@ -20,6 +21,7 @@ target_link_libraries(media_chunking
 add_executable(media_chunking_unittest
     chunking_handler_unittest.cc
     cue_alignment_handler_unittest.cc
+    epoch_segment_numbering_unittest.cc
     segment_coordinator_unittest.cc
     sync_point_queue_unittest.cc
     text_chunker_unittest.cc
