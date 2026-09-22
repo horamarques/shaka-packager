@@ -9,6 +9,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 
@@ -17,7 +18,6 @@
 #include <packager/media/base/media_sample.h>
 #include <packager/media/base/stream_info.h>
 #include <packager/media/base/timestamp_util.h>
-#include <packager/media/chunking/epoch_segment_numbering.h>
 #include <packager/status.h>
 
 namespace shaka {
@@ -104,6 +104,16 @@ class ChunkingHandler : public MediaHandler {
   // values, handling wrap-around at 2^33. This ensures SegmentInfo timestamps
   // are always increasing even when input timestamps wrap around.
   PtsUnwrapper pts_unwrapper_;
+
+  // Whether the PTS unwrap offset has been seeded from the system clock yet.
+  // Only relevant when segment_number_epoch_us is set; seeding happens once,
+  // on the first media sample.
+  bool wrap_seeded_ = false;
+
+  // Returns the current wall-clock time in microseconds since the Unix
+  // epoch. Overridable by tests via the ChunkingHandlerTest friendship, so
+  // restart-safety behavior can be tested deterministically.
+  std::function<int64_t()> now_us_for_testing_;
 };
 
 }  // namespace media

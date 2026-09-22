@@ -18,6 +18,7 @@
 #include <packager/chunking_params.h>
 #include <packager/media/base/media_handler.h>
 #include <packager/media/base/media_handler_test_base.h>
+#include <packager/media/chunking/epoch_segment_numbering.h>
 #include <packager/status.h>
 #include <packager/status/status_test_util.h>
 
@@ -65,6 +66,12 @@ class ChunkingHandlerTest : public MediaHandlerGraphTestBase {
 
   Status OnFlushRequest(int stream_index) {
     return chunking_handler_->OnFlushRequest(stream_index);
+  }
+
+  // Overrides the wall-clock reading used to seed the PTS wrap offset, via
+  // the ChunkingHandlerTest friendship (there is no production setter).
+  void SetNowForTesting(int64_t now_us) {
+    chunking_handler_->now_us_for_testing_ = [now_us] { return now_us; };
   }
 
  protected:
@@ -279,6 +286,10 @@ TEST_F(ChunkingHandlerTest, EpochAnchoredSegmentNumbers) {
   chunking_params.segment_duration_in_seconds = 1;
   chunking_params.segment_number_epoch_us = k2026Us;
   SetUpChunkingHandler(1, chunking_params);
+  // Pin the clock to the anchor itself (PTS 0) so the wrap-offset seeding
+  // added for restart-safety resolves to zero wraps here, independent of the
+  // real wall-clock date this test happens to run on.
+  SetNowForTesting(k2026Us);
 
   ASSERT_OK(Process(StreamData::FromStreamInfo(
       kStreamIndex, GetVideoStreamInfo(kTimeScale1))));
@@ -309,6 +320,75 @@ TEST_F(ChunkingHandlerTest, WithoutEpochUsesStartSegmentNumber) {
       kStreamIndex, GetMediaSample(kTimeScale1, kTimeScale1, kKeyFrame))));
 
   EXPECT_THAT(GetSegmentNumbers(GetOutputStreamDataVector()), ElementsAre(7));
+}
+
+TEST_F(ChunkingHandlerTest, EpochNumbersSurviveRestartAfterPtsWrap) {
+  // Simulate a restart 30 hours into a stream: the input PTS has wrapped
+  // once, so the raw value is small, but the number must continue as though
+  // the instance had been running throughout.
+  const int32_t kTimeScale90k = 90000;
+  const int64_t k2026Us = 1767225600000000LL;
+  const int64_t kThirtyHoursUs = 30LL * 3600 * 1000000;
+  ChunkingParams chunking_params;
+  chunking_params.segment_duration_in_seconds = 1;
+  chunking_params.segment_number_epoch_us = k2026Us;
+  SetUpChunkingHandler(1, chunking_params);
+  SetNowForTesting(k2026Us + kThirtyHoursUs);
+
+  ASSERT_OK(Process(StreamData::FromStreamInfo(
+      kStreamIndex, GetVideoStreamInfo(kTimeScale90k))));
+  // Raw PTS just after the wrap.
+  ASSERT_OK(Process(StreamData::FromMediaSample(
+      kStreamIndex, GetMediaSample(0, kTimeScale90k, kKeyFrame))));
+  ASSERT_OK(Process(StreamData::FromMediaSample(
+      kStreamIndex,
+      GetMediaSample(kTimeScale90k, kTimeScale90k, kKeyFrame))));
+
+  // 2^33 ticks at 90kHz is 95443 whole seconds.
+  const int64_t expected = k2026Us / 1000000 + 95443;
+  EXPECT_THAT(GetSegmentNumbers(GetOutputStreamDataVector()),
+              ElementsAre(expected));
+}
+
+TEST_F(ChunkingHandlerTest, EpochNumbersMonotonicAcrossMidStreamWrap) {
+  // Task 3's tests used PTS values far below the 2^33 wrap threshold, so they
+  // would still pass even if EpochSegmentNumber were fed the WRAPPED
+  // timestamp instead of the value pts_unwrapper_ has unwrapped. Drive the
+  // handler across a real mid-stream wrap (no restart involved: the clock
+  // matches the stream exactly, so the seeded wrap offset is zero) and
+  // confirm segment numbers keep climbing instead of jumping back to the
+  // small numbers implied by the raw wrapped PTS.
+  const int32_t kTimeScale90k = 90000;
+  const int64_t k2026Us = 1767225600000000LL;
+  // One segment before the 2^33 wrap boundary.
+  const int64_t kPreWrapPts = (kPtsWrapAround / kTimeScale90k) * kTimeScale90k;
+  // The same timeline position as an encoder emitting 33-bit PTS would
+  // actually send it: wrapped back down near zero.
+  const int64_t kPostWrapPts1 =
+      (kPreWrapPts + kTimeScale90k) % kPtsWrapAround;
+  const int64_t kPostWrapPts2 = kPostWrapPts1 + kTimeScale90k;
+
+  ChunkingParams chunking_params;
+  chunking_params.segment_duration_in_seconds = 1;
+  chunking_params.segment_number_epoch_us = k2026Us;
+  SetUpChunkingHandler(1, chunking_params);
+  SetNowForTesting(k2026Us + PtsToMicroseconds(kPreWrapPts, kTimeScale90k));
+
+  ASSERT_OK(Process(StreamData::FromStreamInfo(
+      kStreamIndex, GetVideoStreamInfo(kTimeScale90k))));
+  ASSERT_OK(Process(StreamData::FromMediaSample(
+      kStreamIndex, GetMediaSample(kPreWrapPts, kTimeScale90k, kKeyFrame))));
+  ASSERT_OK(Process(StreamData::FromMediaSample(
+      kStreamIndex,
+      GetMediaSample(kPostWrapPts1, kTimeScale90k, kKeyFrame))));
+  ASSERT_OK(Process(StreamData::FromMediaSample(
+      kStreamIndex,
+      GetMediaSample(kPostWrapPts2, kTimeScale90k, kKeyFrame))));
+
+  const int64_t first =
+      k2026Us / 1000000 + kPreWrapPts / kTimeScale90k;
+  EXPECT_THAT(GetSegmentNumbers(GetOutputStreamDataVector()),
+              ElementsAre(first, first + 1));
 }
 
 }  // namespace media

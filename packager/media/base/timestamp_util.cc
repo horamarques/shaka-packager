@@ -44,11 +44,11 @@ int64_t PtsUnwrapper::Unwrap(int64_t wrapped_pts) {
   DCHECK_LT(wrapped_pts, kPtsWrapAround);
 
   if (!initialized_) {
-    // First timestamp - use as-is
+    // First timestamp - use as-is, plus any seeded offset.
     last_wrapped_ = wrapped_pts;
     initialized_ = true;
     DVLOG(3) << "PtsUnwrapper: Initialized with PTS " << wrapped_pts;
-    return wrapped_pts;
+    return wrapped_pts + unwrapped_offset_;
   }
 
   // Compute signed difference from last timestamp
@@ -92,6 +92,12 @@ void PtsUnwrapper::Reset() {
   last_wrapped_ = 0;
   unwrapped_offset_ = 0;
   DVLOG(2) << "PtsUnwrapper: Reset";
+}
+
+void PtsUnwrapper::SeedWrapOffset(int64_t offset) {
+  DCHECK(!initialized_)
+      << "SeedWrapOffset must be called before the first Unwrap()";
+  unwrapped_offset_ = offset;
 }
 
 }  // namespace media

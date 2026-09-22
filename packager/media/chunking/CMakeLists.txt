@@ -15,6 +15,7 @@ add_library(media_chunking STATIC
     text_chunker.cc
 )
 target_link_libraries(media_chunking
+    absl::time
     media_base
 )
 

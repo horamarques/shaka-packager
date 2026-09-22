@@ -7,6 +7,7 @@
 #include <packager/media/chunking/chunking_handler.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -15,12 +16,15 @@
 
 #include <absl/log/check.h>
 #include <absl/log/log.h>
+#include <absl/time/clock.h>
+#include <absl/time/time.h>
 
 #include <packager/chunking_params.h>
 #include <packager/macros/status.h>
 #include <packager/media/base/media_handler.h>
 #include <packager/media/base/media_sample.h>
 #include <packager/media/base/stream_info.h>
+#include <packager/media/chunking/epoch_segment_numbering.h>
 #include <packager/status.h>
 
 namespace shaka {
@@ -40,7 +44,8 @@ bool IsNewSegmentIndex(int64_t new_index, int64_t current_index) {
 }  // namespace
 
 ChunkingHandler::ChunkingHandler(const ChunkingParams& chunking_params)
-    : chunking_params_(chunking_params) {
+    : chunking_params_(chunking_params),
+      now_us_for_testing_([] { return absl::ToUnixMicros(absl::Now()); }) {
   CHECK_NE(chunking_params.segment_duration_in_seconds, 0u);
   segment_number_ = chunking_params.start_segment_number;
 }
@@ -82,8 +87,10 @@ Status ChunkingHandler::OnStreamInfo(std::shared_ptr<const StreamInfo> info) {
       chunking_params_.segment_duration_in_seconds * time_scale_;
   subsegment_duration_ =
       chunking_params_.subsegment_duration_in_seconds * time_scale_;
-  segment_duration_us_ = static_cast<int64_t>(
-      chunking_params_.segment_duration_in_seconds * 1000000);
+  // Derived from the tick value (rather than truncating the same double a
+  // second time) so this exactly agrees with the value that decides segment
+  // boundaries above.
+  segment_duration_us_ = PtsToMicroseconds(segment_duration_, time_scale_);
   return DispatchStreamInfo(kStreamIndex, std::move(info));
 }
 
@@ -105,6 +112,33 @@ Status ChunkingHandler::OnMediaSample(
   DCHECK_GT(time_scale_, 0) << "kStreamInfo should arrive before kMediaSample";
 
   const int64_t timestamp = sample->pts();
+
+  if (chunking_params_.segment_number_epoch_us && !wrap_seeded_) {
+    wrap_seeded_ = true;
+    const int64_t now_us = now_us_for_testing_();
+    const int64_t wrap_offset =
+        ResolveWrapOffset(timestamp, time_scale_,
+                           *chunking_params_.segment_number_epoch_us, now_us);
+    pts_unwrapper_.SeedWrapOffset(wrap_offset);
+
+    // Warn loudly, once, if the anchor implies a stream time far from the
+    // system clock: a silently wrong anchor mis-numbers every segment, which
+    // is exactly the failure this feature exists to prevent. Compute the
+    // implied instant directly from the raw timestamp and the offset just
+    // resolved rather than calling pts_unwrapper_.Unwrap() here, since
+    // unwrapping happens only in EndSegmentIfStarted and calling it early
+    // would advance the unwrapper's state and risk double-counting wraps.
+    const int64_t implied_us =
+        *chunking_params_.segment_number_epoch_us +
+        PtsToMicroseconds(timestamp + wrap_offset, time_scale_);
+    const int64_t skew_us = implied_us - now_us;
+    if (std::abs(skew_us) > 3600LL * 1000000) {
+      LOG(WARNING) << "segment_number_epoch implies a stream time "
+                   << skew_us / 1000000
+                   << "s from the system clock. Segment numbers will not "
+                      "match other instances if this anchor is wrong.";
+    }
+  }
 
   bool started_new_segment = false;
   const bool can_start_new_segment =

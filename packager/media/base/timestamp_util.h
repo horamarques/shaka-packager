@@ -80,6 +80,11 @@ class PtsUnwrapper {
   /// Resets the unwrapper state (for stream discontinuities).
   void Reset();
 
+  /// Presets the accumulated wrap offset. Must be called before the first
+  /// Unwrap(). Used to resume correct absolute timestamps after a restart,
+  /// where the wrap count cannot be inferred from observation alone.
+  void SeedWrapOffset(int64_t offset);
+
   /// Returns true if the unwrapper has been initialized with at least one
   /// timestamp.
   bool IsInitialized() const { return initialized_; }
