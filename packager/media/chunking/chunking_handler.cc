@@ -121,22 +121,28 @@ Status ChunkingHandler::OnMediaSample(
                            *chunking_params_.segment_number_epoch_us, now_us);
     pts_unwrapper_.SeedWrapOffset(wrap_offset);
 
-    // Warn loudly, once, if the anchor implies a stream time far from the
-    // system clock: a silently wrong anchor mis-numbers every segment, which
-    // is exactly the failure this feature exists to prevent. Compute the
-    // implied instant directly from the raw timestamp and the offset just
-    // resolved rather than calling pts_unwrapper_.Unwrap() here, since
-    // unwrapping happens only in EndSegmentIfStarted and calling it early
-    // would advance the unwrapper's state and risk double-counting wraps.
+    // Warn loudly, once, if the anchor implies a stream time far enough from
+    // the system clock that ResolveWrapOffset could have picked the wrong
+    // wrap count. Compute the implied instant directly from the raw
+    // timestamp and the offset just resolved rather than calling
+    // pts_unwrapper_.Unwrap() here, since unwrapping happens only in
+    // EndSegmentIfStarted and calling it early would advance the unwrapper's
+    // state and risk double-counting wraps.
     const int64_t implied_us =
         *chunking_params_.segment_number_epoch_us +
         PtsToMicroseconds(timestamp + wrap_offset, time_scale_);
     const int64_t skew_us = implied_us - now_us;
-    if (std::abs(skew_us) > 3600LL * 1000000) {
+    // ResolveWrapOffset snaps to the nearest whole wrap, so a residual of up
+    // to half a wrap period is normal and does not indicate a bad anchor.
+    // Only beyond that point could it have chosen the wrong wrap count.
+    const int64_t wrap_period_us =
+        PtsToMicroseconds(kPtsWrapAround, time_scale_);
+    if (std::abs(skew_us) > wrap_period_us / 2) {
       LOG(WARNING) << "segment_number_epoch implies a stream time "
                    << skew_us / 1000000
-                   << "s from the system clock. Segment numbers will not "
-                      "match other instances if this anchor is wrong.";
+                   << "s from the system clock, more than half a PTS wrap "
+                      "period away. The resolved wrap count, and therefore "
+                      "every segment number, may be wrong.";
     }
   }
 

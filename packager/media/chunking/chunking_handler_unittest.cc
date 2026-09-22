@@ -391,5 +391,78 @@ TEST_F(ChunkingHandlerTest, EpochNumbersMonotonicAcrossMidStreamWrap) {
               ElementsAre(first, first + 1));
 }
 
+TEST_F(ChunkingHandlerTest, EpochNumbersUnaffectedByClockSkewWithinHalfWrapPeriod) {
+  // ResolveWrapOffset snaps to the nearest whole wrap, so a residual of up
+  // to half a wrap period (~13.256h at 90kHz) is normal and does not
+  // indicate a bad anchor. This reproduces a correctly configured run with
+  // a clock skew of -36432s (~10.1h), comfortably inside that tolerance:
+  // the resolved wrap count must be the same as it would be with a
+  // perfectly matching clock. There is no log-capture harness in this test
+  // fixture, so this cannot assert that the plausibility warning stayed
+  // silent; it asserts the segment number that depends on the same
+  // wrap-offset resolution instead.
+  const int32_t kTimeScale90k = 90000;
+  const int64_t k2026Us = 1767225600000000LL;
+  const int64_t kWrapPeriodUs =
+      PtsToMicroseconds(kPtsWrapAround, kTimeScale90k);
+  const int64_t kSkewUs = 36432LL * 1000000;
+  ChunkingParams chunking_params;
+  chunking_params.segment_duration_in_seconds = 1;
+  chunking_params.segment_number_epoch_us = k2026Us;
+  SetUpChunkingHandler(1, chunking_params);
+  // One wrap period plus the skew: the residual from the nearest whole wrap
+  // is exactly kSkewUs, well inside the half-period tolerance.
+  SetNowForTesting(k2026Us + kWrapPeriodUs + kSkewUs);
+
+  ASSERT_OK(Process(StreamData::FromStreamInfo(
+      kStreamIndex, GetVideoStreamInfo(kTimeScale90k))));
+  ASSERT_OK(Process(StreamData::FromMediaSample(
+      kStreamIndex, GetMediaSample(0, kTimeScale90k, kKeyFrame))));
+  ASSERT_OK(Process(StreamData::FromMediaSample(
+      kStreamIndex,
+      GetMediaSample(kTimeScale90k, kTimeScale90k, kKeyFrame))));
+
+  // 2^33 ticks at 90kHz is 95443 whole seconds: one wrap was correctly
+  // resolved despite the clock skew.
+  const int64_t expected = k2026Us / 1000000 + 95443;
+  EXPECT_THAT(GetSegmentNumbers(GetOutputStreamDataVector()),
+              ElementsAre(expected));
+}
+
+TEST_F(ChunkingHandlerTest, EpochNumbersClampWrapOffsetBeyondHalfWrapPeriod) {
+  // When the ideal wrap correction is negative (the anchor implies the
+  // stream should read "behind" a zero-wrap timeline), ResolveWrapOffset
+  // clamps to zero rather than returning a negative offset, so the residual
+  // can be far larger than half a wrap period. This is exactly the
+  // situation the plausibility warning's new threshold is meant to flag.
+  // As above, this asserts the resulting (clamped, and therefore off by
+  // nearly a full wrap) segment number rather than the warning itself.
+  const int32_t kTimeScale90k = 90000;
+  const int64_t k2026Us = 1767225600000000LL;
+  const int64_t kWrapPeriodUs =
+      PtsToMicroseconds(kPtsWrapAround, kTimeScale90k);
+  ChunkingParams chunking_params;
+  chunking_params.segment_duration_in_seconds = 1;
+  chunking_params.segment_number_epoch_us = k2026Us;
+  SetUpChunkingHandler(1, chunking_params);
+  // The clock reads 3/4 of a wrap period before the anchor: the ideal
+  // correction would be one wrap backward, which ResolveWrapOffset cannot
+  // express, so it clamps to zero and the residual (3/4 of a wrap period)
+  // ends up well beyond the half-period tolerance.
+  SetNowForTesting(k2026Us - (3 * kWrapPeriodUs) / 4);
+
+  ASSERT_OK(Process(StreamData::FromStreamInfo(
+      kStreamIndex, GetVideoStreamInfo(kTimeScale90k))));
+  ASSERT_OK(Process(StreamData::FromMediaSample(
+      kStreamIndex, GetMediaSample(0, kTimeScale90k, kKeyFrame))));
+  ASSERT_OK(Process(StreamData::FromMediaSample(
+      kStreamIndex,
+      GetMediaSample(kTimeScale90k, kTimeScale90k, kKeyFrame))));
+
+  const int64_t expected = k2026Us / 1000000;
+  EXPECT_THAT(GetSegmentNumbers(GetOutputStreamDataVector()),
+              ElementsAre(expected));
+}
+
 }  // namespace media
 }  // namespace shaka
