@@ -425,7 +425,8 @@ bool SimpleHlsNotifier::NotifyNewSegment(uint32_t stream_id,
                                          int64_t start_time,
                                          int64_t duration,
                                          uint64_t start_byte_offset,
-                                         uint64_t size) {
+                                         uint64_t size,
+                                         int64_t segment_number) {
   absl::MutexLock lock(lock_);
   auto stream_iterator = stream_map_.find(stream_id);
   if (stream_iterator == stream_map_.end()) {
@@ -437,7 +438,7 @@ bool SimpleHlsNotifier::NotifyNewSegment(uint32_t stream_id,
       GenerateSegmentUrl(segment_name, hls_params().base_url,
                          master_playlist_dir_, media_playlist->file_name());
   media_playlist->AddSegment(segment_url, start_time, duration,
-                             start_byte_offset, size);
+                             start_byte_offset, size, segment_number);
 
   // Update target duration.
   int32_t longest_segment_duration =

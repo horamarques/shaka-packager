@@ -119,7 +119,7 @@ std::string CreatePlaylistHeader(
     int32_t target_duration,
     HlsPlaylistType type,
     MediaPlaylist::MediaPlaylistStreamType stream_type,
-    uint32_t media_sequence_number,
+    int64_t media_sequence_number,
     int discontinuity_sequence_number,
     std::optional<double> start_time_offset,
     bool low_latency_hls_mode,
@@ -563,7 +563,15 @@ void MediaPlaylist::AddSegment(const std::string& file_name,
                                int64_t start_time,
                                int64_t duration,
                                uint64_t start_byte_offset,
-                               uint64_t size) {
+                               uint64_t size,
+                               int64_t segment_number) {
+  // Adopt an epoch-anchored segment number as the media sequence number, but
+  // only before any segment has been added; a forced hls_params_ seed (which
+  // pushes a DiscontinuityEntry in the constructor) or a later segment must
+  // not be overridden.
+  if (entries_.empty() && segment_number > media_sequence_number_)
+    media_sequence_number_ = segment_number;
+
   if (stream_type_ == MediaPlaylistStreamType::kVideoIFramesOnly) {
     if (key_frames_.empty())
       return;

@@ -543,7 +543,7 @@ class SegmentTemplateTest : public RepresentationTest {
   }
 
  protected:
-  std::string ExpectedXml() {
+  std::string ExpectedXml(int64_t start_number = 1) {
     const char kOutputTemplate[] =
         "<Representation id=\"1\" bandwidth=\"%" PRIu64
         "\" "
@@ -551,14 +551,14 @@ class SegmentTemplateTest : public RepresentationTest {
         " width=\"720\" height=\"480\" frameRate=\"10/5\">\n"
         "  <SegmentTemplate timescale=\"1000\" "
         "   initialization=\"init.mp4\" media=\"$Time$.mp4\" "
-        "   startNumber=\"1\">\n"
+        "   startNumber=\"%" PRId64 "\">\n"
         "    <SegmentTimeline>\n"
         "      %s\n"
         "    </SegmentTimeline>\n"
         "  </SegmentTemplate>\n"
         "</Representation>\n";
     return absl::StrFormat(kOutputTemplate, bandwidth_estimator_.Max(),
-                           expected_s_elements_.c_str());
+                           start_number, expected_s_elements_.c_str());
   }
 
   std::unique_ptr<Representation> representation_;
@@ -577,6 +577,25 @@ TEST_F(SegmentTemplateTest, OneSegmentNormal) {
 
   expected_s_elements_ = "<S t=\"0\" d=\"10\"/>";
   EXPECT_THAT(representation_->GetXml(), XmlNodeEqual(ExpectedXml()));
+}
+
+// Regression test: an epoch-derived segment number must appear verbatim as
+// startNumber rather than being renumbered from 1. This is a regression test
+// only; the DASH path already carries the number end to end via
+// AddNewSegment -> AddSegmentInfo -> SegmentInfo::start_segment_number.
+TEST_F(SegmentTemplateTest, EpochAnchoredStartNumber) {
+  const int64_t kStartTime = 0;
+  const int64_t kDuration = 10;
+  const uint64_t kSize = 128;
+  const int64_t kEpochNumber = 441806400LL;
+
+  representation_->AddNewSegment(kStartTime, kDuration, kSize, kEpochNumber);
+  bandwidth_estimator_.AddBlock(
+      kSize, static_cast<double>(kDuration) / kDefaultTimeScale);
+
+  expected_s_elements_ = "<S t=\"0\" d=\"10\"/>";
+  EXPECT_THAT(representation_->GetXml(),
+             XmlNodeEqual(ExpectedXml(kEpochNumber)));
 }
 
 TEST_F(SegmentTemplateTest, OneSegmentLowLatency) {

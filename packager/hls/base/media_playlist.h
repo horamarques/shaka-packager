@@ -141,11 +141,16 @@ class MediaPlaylist {
   /// @param start_byte_offset is the offset of where the subsegment starts.
   ///        This must be 0 if the whole segment is a subsegment.
   /// @param size is size in bytes.
+  /// @param segment_number, if greater than 0, seeds the playlist's media
+  ///        sequence number when this is the first segment added. This lets
+  ///        an epoch-anchored segment number carry into EXT-X-MEDIA-SEQUENCE
+  ///        instead of the playlist's own independent counter.
   virtual void AddSegment(const std::string& file_name,
                           int64_t start_time,
                           int64_t duration,
                           uint64_t start_byte_offset,
-                          uint64_t size);
+                          uint64_t size,
+                          int64_t segment_number = 0);
 
   /// Add a partial segment (EXT-X-PART) for LL-HLS. Partial segments must
   /// be added in order before the containing full segment is added.
@@ -341,7 +346,7 @@ class MediaPlaylist {
   std::string language_;
   std::vector<std::string> characteristics_;
   bool forced_subtitle_ = false;
-  uint32_t media_sequence_number_ = 0;
+  int64_t media_sequence_number_ = 0;
   bool inserted_discontinuity_tag_ = false;
   int discontinuity_sequence_number_ = 0;
 
