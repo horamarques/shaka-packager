@@ -17,6 +17,7 @@
 #include <packager/media/base/media_sample.h>
 #include <packager/media/base/stream_info.h>
 #include <packager/media/base/timestamp_util.h>
+#include <packager/media/chunking/epoch_segment_numbering.h>
 #include <packager/status.h>
 
 namespace shaka {
@@ -76,6 +77,9 @@ class ChunkingHandler : public MediaHandler {
   // Segment and subsegment duration in stream's time scale.
   int64_t segment_duration_ = 0;
   int64_t subsegment_duration_ = 0;
+
+  // Segment duration in microseconds, for epoch-anchored numbering.
+  int64_t segment_duration_us_ = 0;
 
   // Segment number that keeps monotically increasing.
   // Set to start_segment_number in constructor.

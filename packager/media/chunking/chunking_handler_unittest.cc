@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <memory>
 #include <utility>
+#include <vector>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -34,6 +35,18 @@ const int64_t kDuration = 300;
 const bool kKeyFrame = true;
 const bool kIsSubsegment = true;
 const bool kEncrypted = true;
+
+// No matcher for segment_number exists in media_handler_test_base.h, so we
+// pull the numbers out of the kSegmentInfo entries directly.
+std::vector<int64_t> GetSegmentNumbers(
+    const std::vector<std::unique_ptr<StreamData>>& stream_data_vector) {
+  std::vector<int64_t> segment_numbers;
+  for (const auto& stream_data : stream_data_vector) {
+    if (stream_data->stream_data_type == StreamDataType::kSegmentInfo)
+      segment_numbers.push_back(stream_data->segment_info->segment_number);
+  }
+  return segment_numbers;
+}
 
 }  // namespace
 
@@ -256,6 +269,46 @@ TEST_F(ChunkingHandlerTest, LowLatencyDash) {
           // Chunk 2 for segment 2
           IsMediaSample(kStreamIndex, kSegmentDurationInMs + kChunkDurationInMs,
                         kChunkDurationInMs, !kEncrypted, _)));
+}
+
+TEST_F(ChunkingHandlerTest, EpochAnchoredSegmentNumbers) {
+  // Anchor PTS 0 at 2026-01-01T00:00:00Z with 1 second segments, so the
+  // expected first number is that instant in seconds.
+  const int64_t k2026Us = 1767225600000000LL;
+  ChunkingParams chunking_params;
+  chunking_params.segment_duration_in_seconds = 1;
+  chunking_params.segment_number_epoch_us = k2026Us;
+  SetUpChunkingHandler(1, chunking_params);
+
+  ASSERT_OK(Process(StreamData::FromStreamInfo(
+      kStreamIndex, GetVideoStreamInfo(kTimeScale1))));
+  // Two 1-second segments starting at PTS 0.
+  ASSERT_OK(Process(StreamData::FromMediaSample(
+      kStreamIndex, GetMediaSample(0, kTimeScale1, kKeyFrame))));
+  ASSERT_OK(Process(StreamData::FromMediaSample(
+      kStreamIndex, GetMediaSample(kTimeScale1, kTimeScale1, kKeyFrame))));
+  ASSERT_OK(Process(StreamData::FromMediaSample(
+      kStreamIndex, GetMediaSample(2 * kTimeScale1, kTimeScale1, kKeyFrame))));
+
+  const int64_t expected_first = k2026Us / 1000000;
+  EXPECT_THAT(GetSegmentNumbers(GetOutputStreamDataVector()),
+              ElementsAre(expected_first, expected_first + 1));
+}
+
+TEST_F(ChunkingHandlerTest, WithoutEpochUsesStartSegmentNumber) {
+  ChunkingParams chunking_params;
+  chunking_params.segment_duration_in_seconds = 1;
+  chunking_params.start_segment_number = 7;
+  SetUpChunkingHandler(1, chunking_params);
+
+  ASSERT_OK(Process(StreamData::FromStreamInfo(
+      kStreamIndex, GetVideoStreamInfo(kTimeScale1))));
+  ASSERT_OK(Process(StreamData::FromMediaSample(
+      kStreamIndex, GetMediaSample(0, kTimeScale1, kKeyFrame))));
+  ASSERT_OK(Process(StreamData::FromMediaSample(
+      kStreamIndex, GetMediaSample(kTimeScale1, kTimeScale1, kKeyFrame))));
+
+  EXPECT_THAT(GetSegmentNumbers(GetOutputStreamDataVector()), ElementsAre(7));
 }
 
 }  // namespace media

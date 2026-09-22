@@ -8,6 +8,7 @@
 #define PACKAGER_PUBLIC_CHUNKING_PARAMS_H_
 
 #include <cstdint>
+#include <optional>
 
 namespace shaka {
 
@@ -44,6 +45,16 @@ struct ChunkingParams {
 
   /// Indicates the startNumber in DASH SegmentTemplate and HLS segment name.
   int64_t start_segment_number = 1;
+
+  /// When set, segment numbers are derived from wall-clock time instead of
+  /// counting from start_segment_number: the number is
+  /// floor((segment_number_epoch_us + pts) / segment_duration), counted from
+  /// the Unix epoch. This makes numbering identical across independent
+  /// packager instances fed by epoch-locked encoders, and stable across a
+  /// restart. The value is the UTC instant corresponding to media timeline
+  /// zero, in microseconds since the Unix epoch.
+  /// start_segment_number is ignored when this is set.
+  std::optional<int64_t> segment_number_epoch_us;
 
   // For DVB-Teletext in MPEG-2 TS: timing offset (in 90kHz ticks) between
   // video PTS timestamps and text segment generation. This compensates for

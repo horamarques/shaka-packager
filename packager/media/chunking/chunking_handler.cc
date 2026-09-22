@@ -82,6 +82,8 @@ Status ChunkingHandler::OnStreamInfo(std::shared_ptr<const StreamInfo> info) {
       chunking_params_.segment_duration_in_seconds * time_scale_;
   subsegment_duration_ =
       chunking_params_.subsegment_duration_in_seconds * time_scale_;
+  segment_duration_us_ = static_cast<int64_t>(
+      chunking_params_.segment_duration_in_seconds * 1000000);
   return DispatchStreamInfo(kStreamIndex, std::move(info));
 }
 
@@ -183,7 +185,13 @@ Status ChunkingHandler::EndSegmentIfStarted() {
   auto segment_info = std::make_shared<SegmentInfo>();
   segment_info->start_timestamp = unwrapped_start;
   segment_info->duration = unwrapped_max - unwrapped_start;
-  segment_info->segment_number = segment_number_++;
+  if (chunking_params_.segment_number_epoch_us) {
+    segment_info->segment_number = EpochSegmentNumber(
+        unwrapped_start, time_scale_,
+        *chunking_params_.segment_number_epoch_us, segment_duration_us_);
+  } else {
+    segment_info->segment_number = segment_number_++;
+  }
 
   DVLOG(2) << "ChunkingHandler: Segment " << segment_info->segment_number
            << " start=" << unwrapped_start
