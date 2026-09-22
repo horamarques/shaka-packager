@@ -84,11 +84,32 @@ the switch point. In both modes a lost packet no longer kills the pipeline:
 the TS demuxer drops the damaged access unit, resynchronizes on the next
 unit start, and continues.
 
+Epoch-anchored segment numbering
+---------------------------------
+
+``--segment_number_epoch`` derives segment numbers from wall-clock time
+instead of a per-instance counter. This is what enables per-segment origin
+arbitration for a redundant pair (see above): two independent instances fed
+frame-aligned input and configured with the same epoch produce the same
+segment number for the same media interval, so a player or origin can pick
+either instance's copy of a given segment number.
+
+It is worth being explicit about what this flag does not do. It does not
+align segment boundaries: those still derive from input PTS, so boundary
+alignment across legs remains the encoders' responsibility (epoch-locked
+IDR placement). It does not detect degraded input, and it does not signal a
+discontinuity when an input source switches, for example on a
+``redundant://`` failover. See :doc:`/options/segment_numbering_options`
+for the full flag reference, including the restart-safety behaviour and its
+dependence on the system clock, and why this flag is meant for live input
+rather than file/VOD input.
+
 Configuration options
 ---------------------
 
 .. include:: /options/udp_file_options.rst
 .. include:: /options/redundant_input_options.rst
+.. include:: /options/segment_numbering_options.rst
 .. include:: /options/segment_template_formatting.rst
 
 Monitoring live channels
