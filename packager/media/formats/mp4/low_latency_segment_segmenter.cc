@@ -128,9 +128,6 @@ Status LowLatencySegmentSegmenter::WriteInitialChunk(int64_t segment_number) {
         options().epoch_anchored_segment_numbers
             ? segment_number
             : static_cast<int64_t>(num_segments_);
-    LOG(ERROR) << "DEBUG WriteInitialChunk segment_number=" << segment_number
-              << " num_segments_=" << num_segments_
-              << " filename_segment_number=" << filename_segment_number;
     file_name_ = GetSegmentName(options().segment_template,
                                 sidx()->earliest_presentation_time,
                                 filename_segment_number, options().bandwidth);
