@@ -242,6 +242,16 @@ inline bool operator==(const CodecConfiguration& lhs,
   return lhs.box_type == rhs.box_type && lhs.data == rhs.data;
 }
 
+inline bool operator==(const MasteringDisplayColorVolume& lhs,
+                       const MasteringDisplayColorVolume& rhs) {
+  return lhs.raw_box == rhs.raw_box;
+}
+
+inline bool operator==(const ContentLightLevelInformation& lhs,
+                       const ContentLightLevelInformation& rhs) {
+  return lhs.raw_box == rhs.raw_box;
+}
+
 inline bool operator==(const PixelAspectRatio& lhs,
                        const PixelAspectRatio& rhs) {
   return lhs.h_spacing == rhs.h_spacing && lhs.v_spacing == rhs.v_spacing;
@@ -252,6 +262,7 @@ inline bool operator==(const VideoSampleEntry& lhs,
   return lhs.format == rhs.format &&
          lhs.data_reference_index == rhs.data_reference_index &&
          lhs.width == rhs.width && lhs.height == rhs.height &&
+         lhs.mdcv == rhs.mdcv && lhs.clli == rhs.clli &&
          lhs.pixel_aspect == rhs.pixel_aspect && lhs.sinf == rhs.sinf &&
          lhs.codec_configuration == rhs.codec_configuration;
 }

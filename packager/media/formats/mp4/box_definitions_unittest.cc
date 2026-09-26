@@ -339,6 +339,22 @@ class BoxDefinitionsTestGeneral : public testing::Test {
     colr->video_full_range_flag = 0;
   }
 
+  void Fill(MasteringDisplayColorVolume* mdcv) {
+    // 32-byte box: G/B/R primaries, white point, max 1000 / min 0.005 cd/m2.
+    const uint8_t kMdcv[] = {0x00, 0x00, 0x00, 0x20, 'm',  'd',  'c',  'v',
+                             0x33, 0xc2, 0x86, 0xc4, 0x1d, 0x4c, 0x0b, 0xb8,
+                             0x84, 0xd0, 0x3e, 0x80, 0x3d, 0x13, 0x40, 0x42,
+                             0x00, 0x98, 0x96, 0x80, 0x00, 0x00, 0x00, 0x32};
+    mdcv->raw_box.assign(std::begin(kMdcv), std::end(kMdcv));
+  }
+
+  void Fill(ContentLightLevelInformation* clli) {
+    // MaxCLL 1000, MaxFALL 400.
+    const uint8_t kClli[] = {0x00, 0x00, 0x00, 0x0c, 'c',  'l',
+                             'l',  'i',  0x03, 0xe8, 0x01, 0x90};
+    clli->raw_box.assign(std::begin(kClli), std::end(kClli));
+  }
+
   void Fill(PixelAspectRatio* pasp) {
     pasp->h_spacing = 5;
     pasp->v_spacing = 8;
@@ -374,6 +390,8 @@ class BoxDefinitionsTestGeneral : public testing::Test {
     entry->width = 800;
     entry->height = 600;
     Fill(&entry->colr);
+    Fill(&entry->mdcv);
+    Fill(&entry->clli);
     Fill(&entry->pixel_aspect);
     Fill(&entry->sinf);
     Fill(&entry->codec_configuration);
@@ -1192,6 +1210,31 @@ TEST_F(BoxDefinitionsTest, VPCodecConfiguration) {
   EXPECT_EQ(codec_configuration, codec_configuration_readback);
 }
 
+TEST_F(BoxDefinitionsTest, VideoSampleEntryWithEmptyCodecConfiguration) {
+  // Regression test for
+  // https://github.com/shaka-project/shaka-packager/issues/1142.
+  // If a higher layer leaves the CodecConfiguration empty, the box must not be
+  // serialized with a declared size (0) that disagrees with the bytes written,
+  // which previously corrupted the whole file. The empty box is skipped, so the
+  // total bytes written match the computed size and the entry round-trips.
+  VideoSampleEntry entry;
+  entry.format = FOURCC_avc1;
+  entry.data_reference_index = 1;
+  entry.width = 800;
+  entry.height = 600;
+  entry.codec_configuration.box_type = FOURCC_avcC;
+  // codec_configuration.data intentionally left empty.
+
+  entry.Write(this->buffer_.get());
+  EXPECT_EQ(entry.ComputeSize(), this->buffer_->Size());
+
+  VideoSampleEntry entry_readback;
+  ASSERT_TRUE(ReadBack(&entry_readback));
+  EXPECT_EQ(entry.width, entry_readback.width);
+  EXPECT_EQ(entry.height, entry_readback.height);
+  EXPECT_TRUE(entry_readback.codec_configuration.data.empty());
+}
+
 TEST_F(BoxDefinitionsTest, DTSSampleEntry) {
   AudioSampleEntry entry;
   entry.format = FOURCC_dtse;
@@ -1323,6 +1366,36 @@ TEST_F(BoxDefinitionsTest, FlacSampleEntry) {
   AudioSampleEntry entry_readback;
   ASSERT_TRUE(ReadBack(&entry_readback));
   ASSERT_EQ(entry, entry_readback);
+}
+
+// HDR mastering display colour volume and content light level boxes must survive a
+// read/write round trip unmodified — including in an encrypted (encv) sample entry, the
+// AC-1.6a case; dropping them loses the stream's HDR signalling.
+TEST_F(BoxDefinitionsTest, VideoSampleEntryPreservesHdrBoxes) {
+  VideoSampleEntry entry;
+  Fill(&entry);
+  entry.Write(this->buffer_.get());
+
+  VideoSampleEntry entry_readback;
+  ASSERT_TRUE(ReadBack(&entry_readback));
+  EXPECT_EQ(entry.mdcv.raw_box, entry_readback.mdcv.raw_box);
+  EXPECT_EQ(entry.clli.raw_box, entry_readback.clli.raw_box);
+  ASSERT_EQ(entry, entry_readback);
+}
+
+TEST_F(BoxDefinitionsTest, VideoSampleEntryWithoutHdrBoxesWritesNone) {
+  VideoSampleEntry entry;
+  Fill(&entry);
+  const size_t with_hdr = entry.ComputeSize();
+  entry.mdcv.raw_box.clear();
+  entry.clli.raw_box.clear();
+  EXPECT_EQ(with_hdr - 32 - 12, entry.ComputeSize());
+  entry.Write(this->buffer_.get());
+
+  VideoSampleEntry entry_readback;
+  ASSERT_TRUE(ReadBack(&entry_readback));
+  EXPECT_TRUE(entry_readback.mdcv.raw_box.empty());
+  EXPECT_TRUE(entry_readback.clli.raw_box.empty());
 }
 
 TEST_F(BoxDefinitionsTest, SampleEntryExtraCodecConfigs) {

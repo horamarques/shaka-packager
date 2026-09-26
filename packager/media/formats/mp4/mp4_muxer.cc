@@ -414,16 +414,14 @@ Status MP4Muxer::UpdateEditListOffsetFromSample(const MediaSample& sample) {
   //        presentation time does not equal its composition time.
   const int64_t pts_dts_offset = pts - dts;
   if (pts_dts_offset > 0) {
-    if (pts < 0) {
-      LOG(ERROR) << "Negative presentation timestamp (" << pts
-                 << ") is not supported when there is an offset between "
-                    "presentation timestamp and decoding timestamp ("
-                 << dts << ").";
-      return Status(error::MUXER_FAILURE,
-                    "Unsupported negative pts when there is an offset between "
-                    "pts and dts.");
-    }
-    edit_list_offset_ = pts_dts_offset;
+    // The edit list offset is also used as the baseMediaDecodeTime bias in the
+    // fragmenter: decode_time = first_sample_dts + edit_list_offset_, which
+    // must not be negative (it is stored as an unsigned tfdt). Using pts - dts
+    // yields decode_time == pts, which is fine when pts >= 0. When pts < 0, use
+    // -dts instead so decode_time == 0; presentation timestamps are unaffected
+    // either way (the edit list cancels the bias). See
+    // https://github.com/shaka-project/shaka-packager/issues/1265.
+    edit_list_offset_ = std::max(pts_dts_offset, -dts);
     return Status::OK;
   }
   if (pts_dts_offset < 0) {
@@ -487,6 +485,8 @@ bool MP4Muxer::GenerateVideoTrak(const VideoStreamInfo* video_info,
   video.width = video_info->width();
   video.height = video_info->height();
   video.colr.raw_box = video_info->colr_data();
+  video.mdcv.raw_box = video_info->mdcv_data();
+  video.clli.raw_box = video_info->clli_data();
   video.codec_configuration.data = video_info->codec_config();
   if (!video.ParseExtraCodecConfigsVector(video_info->extra_config())) {
     LOG(ERROR) << "Malformed extra codec configs: "

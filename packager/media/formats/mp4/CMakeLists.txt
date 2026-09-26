@@ -56,6 +56,7 @@ add_executable(mp4_unittest
   decoding_time_iterator_unittest.cc
   low_latency_segment_segmenter_unittest.cc
   mp4_media_parser_unittest.cc
+  mp4_muxer_unittest.cc
   sync_sample_iterator_unittest.cc
   track_run_iterator_unittest.cc
   )
