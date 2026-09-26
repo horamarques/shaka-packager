@@ -1004,6 +1004,8 @@ bool MP4MediaParser::ParseMoov(BoxReader* reader) {
       video_stream_info->set_extra_config(entry.ExtraCodecConfigsAsVector());
       video_stream_info->set_colr_data((entry.colr.raw_box).data(),
                                        (entry.colr.raw_box).size());
+      video_stream_info->set_mdcv_data(entry.mdcv.raw_box);
+      video_stream_info->set_clli_data(entry.clli.raw_box);
 
       // Set pssh raw data if it has.
       if (moov_->pssh.size() > 0) {
