@@ -1,0 +1,46 @@
+# Fork-specific PR gate (horamarques/shaka-packager).
+#
+# Lean Linux validation for pull requests to main: a GCC
+# warnings-as-errors build plus the full unit and integration test
+# suite. The integration goldens are Linux-generated, so unlike macOS
+# dev machines they are expected to pass here.
+#
+# This complements, not replaces, the other validation paths:
+# - pr.yaml (upstream full OS/arch matrix) stays manual via
+#   workflow_dispatch.
+# - pyshaka's CI still exercises the bindings at pin-bump time.
+name: Fork PR Gate
+
+on:
+  pull_request:
+    branches:
+      - main
+
+# If a PR is updated, cancel the run for the previous revision.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.number }}
+  cancel-in-progress: true
+
+jobs:
+  linux-gate:
+    name: Linux GCC build and test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y cmake ninja-build
+
+      - name: Configure
+        run: cmake -G Ninja -DCMAKE_BUILD_TYPE=Debug -S . -B build/
+
+      - name: Build
+        run: cmake --build build/ --parallel
+
+      - name: Test
+        run: ctest -C Debug -V --test-dir build/
