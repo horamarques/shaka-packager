@@ -50,6 +50,7 @@ class MuxerFactory {
 
   const Mp4OutputParams mp4_params_;
   const std::string temp_dir_;
+  const bool epoch_anchored_segment_numbers_;
   int32_t transport_stream_timestamp_offset_ms_ = 0;
   std::shared_ptr<Clock> clock_ = nullptr;
 };

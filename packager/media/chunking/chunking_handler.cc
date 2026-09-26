@@ -245,6 +245,12 @@ Status ChunkingHandler::EndSegmentIfStarted() {
     segment_info->is_final_chunk_in_seg = true;
   }
 
+  LOG(ERROR) << "DEBUG EndSegmentIfStarted is_chunk=" << segment_info->is_chunk
+            << " is_subsegment=" << segment_info->is_subsegment
+            << " is_final_chunk_in_seg=" << segment_info->is_final_chunk_in_seg
+            << " segment_number=" << segment_info->segment_number
+            << " start=" << segment_info->start_timestamp;
+
   return DispatchSegmentInfo(kStreamIndex, std::move(segment_info));
 }
 
@@ -260,6 +266,12 @@ Status ChunkingHandler::EndSubsegmentIfStarted() const {
   if (chunking_params_.low_latency_dash_mode ||
       chunking_params_.low_latency_hls_mode)
     subsegment_info->is_chunk = true;
+  LOG(ERROR) << "DEBUG EndSubsegmentIfStarted is_chunk="
+            << subsegment_info->is_chunk
+            << " is_subsegment=" << subsegment_info->is_subsegment
+            << " is_final_chunk_in_seg=" << subsegment_info->is_final_chunk_in_seg
+            << " segment_number=" << subsegment_info->segment_number
+            << " start=" << subsegment_info->start_timestamp;
   return DispatchSegmentInfo(kStreamIndex, std::move(subsegment_info));
 }
 

@@ -54,6 +54,7 @@ add_executable(mp4_unittest
   chunk_info_iterator_unittest.cc
   composition_offset_iterator_unittest.cc
   decoding_time_iterator_unittest.cc
+  low_latency_segment_segmenter_unittest.cc
   mp4_media_parser_unittest.cc
   sync_sample_iterator_unittest.cc
   track_run_iterator_unittest.cc
@@ -61,6 +62,7 @@ add_executable(mp4_unittest
 target_link_libraries(mp4_unittest
   file
   file_test_util
+  media_handler_test_base
   test_data_util
   absl::flags
   media_event
