@@ -162,7 +162,10 @@ class DiffFilesPolicy(object):
         file_a,
         file_b
     ]
-    return subprocess.check_output(cmd)
+    # 'git diff --no-index' exits 1 when the files differ; that is the
+    # expected way to get a diff, not an error.
+    result = subprocess.run(cmd, stdout=subprocess.PIPE, check=False)
+    return result.stdout
 
   def _Mp4Diff(self, out_dir, file_a, file_b):
     dump_a = os.path.join(out_dir, os.path.basename(file_a) + '.dump.expected')
