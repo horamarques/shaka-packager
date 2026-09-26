@@ -282,6 +282,22 @@ struct ColorParameters : Box {
   std::vector<uint8_t> raw_box;
 };
 
+// Mastering display colour volume (ISO/IEC 23001-8 / SMPTE ST 2086) and content light level
+// information, carried in a video sample entry for HDR content. Like colr, both are preserved
+// byte-for-byte from the input rather than regenerated, so HDR signalling survives packaging
+// and encryption unmodified.
+struct MasteringDisplayColorVolume : Box {
+  DECLARE_BOX_METHODS(MasteringDisplayColorVolume);
+
+  std::vector<uint8_t> raw_box;
+};
+
+struct ContentLightLevelInformation : Box {
+  DECLARE_BOX_METHODS(ContentLightLevelInformation);
+
+  std::vector<uint8_t> raw_box;
+};
+
 struct PixelAspectRatio : Box {
   DECLARE_BOX_METHODS(PixelAspectRatio);
 
@@ -316,6 +332,8 @@ struct VideoSampleEntry : Box {
   uint16_t height = 0u;
 
   ColorParameters colr;
+  MasteringDisplayColorVolume mdcv;
+  ContentLightLevelInformation clli;
   PixelAspectRatio pixel_aspect;
   ProtectionSchemeInfo sinf;
   CodecConfiguration codec_configuration;

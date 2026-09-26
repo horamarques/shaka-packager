@@ -1516,6 +1516,54 @@ size_t ColorParameters::ComputeSizeInternal() {
   return raw_box.size();
 }
 
+MasteringDisplayColorVolume::MasteringDisplayColorVolume() = default;
+MasteringDisplayColorVolume::~MasteringDisplayColorVolume() = default;
+
+FourCC MasteringDisplayColorVolume::BoxType() const {
+  return FOURCC_mdcv;
+}
+
+bool MasteringDisplayColorVolume::ReadWriteInternal(BoxBuffer* buffer) {
+  if (buffer->Reading()) {
+    BoxReader* reader = buffer->reader();
+    DCHECK(reader);
+    // Stored whole (header included) and written back unmodified.
+    raw_box.assign(reader->data(), reader->data() + reader->size());
+  } else {
+    DCHECK(!raw_box.empty());
+    buffer->writer()->AppendVector(raw_box);
+  }
+  return true;
+}
+
+size_t MasteringDisplayColorVolume::ComputeSizeInternal() {
+  return raw_box.size();
+}
+
+ContentLightLevelInformation::ContentLightLevelInformation() = default;
+ContentLightLevelInformation::~ContentLightLevelInformation() = default;
+
+FourCC ContentLightLevelInformation::BoxType() const {
+  return FOURCC_clli;
+}
+
+bool ContentLightLevelInformation::ReadWriteInternal(BoxBuffer* buffer) {
+  if (buffer->Reading()) {
+    BoxReader* reader = buffer->reader();
+    DCHECK(reader);
+    // Stored whole (header included) and written back unmodified.
+    raw_box.assign(reader->data(), reader->data() + reader->size());
+  } else {
+    DCHECK(!raw_box.empty());
+    buffer->writer()->AppendVector(raw_box);
+  }
+  return true;
+}
+
+size_t ContentLightLevelInformation::ComputeSizeInternal() {
+  return raw_box.size();
+}
+
 PixelAspectRatio::PixelAspectRatio() = default;
 PixelAspectRatio::~PixelAspectRatio() = default;
 
@@ -1676,6 +1724,8 @@ bool VideoSampleEntry::ReadWriteInternal(BoxBuffer* buffer) {
   }
 
   RCHECK(buffer->TryReadWriteChild(&colr));
+  RCHECK(buffer->TryReadWriteChild(&mdcv));
+  RCHECK(buffer->TryReadWriteChild(&clli));
   RCHECK(buffer->TryReadWriteChild(&pixel_aspect));
 
   // Somehow Edge does not support having sinf box before codec_configuration,
@@ -1697,7 +1747,8 @@ size_t VideoSampleEntry::ComputeSizeInternal() {
   size_t size = HeaderSize() + sizeof(data_reference_index) + sizeof(width) +
                 sizeof(height) + sizeof(kVideoResolution) * 2 +
                 sizeof(kVideoFrameCount) + sizeof(kVideoDepth) +
-                colr.ComputeSize() + pixel_aspect.ComputeSize() +
+                colr.ComputeSize() + mdcv.ComputeSize() + clli.ComputeSize() +
+                pixel_aspect.ComputeSize() +
                 sinf.ComputeSize() + codec_configuration.ComputeSize() +
                 kCompressorNameSize + 6 + 4 + 16 +
                 2;  // 6 + 4 bytes reserved, 16 + 2 bytes predefined.
