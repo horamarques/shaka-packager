@@ -101,7 +101,7 @@ Status TextMuxer::FinalizeSegment(size_t stream_id,
 
   const int64_t start = segment_info.start_timestamp;
   const int64_t duration = segment_info.duration;
-  const uint32_t segment_number = segment_info.segment_number;
+  const int64_t segment_number = segment_info.segment_number;
 
   const uint32_t bandwidth = options().bandwidth;
 

@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <memory>
 #include <utility>
+#include <vector>
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
@@ -17,6 +18,7 @@
 #include <packager/chunking_params.h>
 #include <packager/media/base/media_handler.h>
 #include <packager/media/base/media_handler_test_base.h>
+#include <packager/media/chunking/epoch_segment_numbering.h>
 #include <packager/status.h>
 #include <packager/status/status_test_util.h>
 
@@ -35,6 +37,18 @@ const bool kKeyFrame = true;
 const bool kIsSubsegment = true;
 const bool kEncrypted = true;
 
+// No matcher for segment_number exists in media_handler_test_base.h, so we
+// pull the numbers out of the kSegmentInfo entries directly.
+std::vector<int64_t> GetSegmentNumbers(
+    const std::vector<std::unique_ptr<StreamData>>& stream_data_vector) {
+  std::vector<int64_t> segment_numbers;
+  for (const auto& stream_data : stream_data_vector) {
+    if (stream_data->stream_data_type == StreamDataType::kSegmentInfo)
+      segment_numbers.push_back(stream_data->segment_info->segment_number);
+  }
+  return segment_numbers;
+}
+
 }  // namespace
 
 class ChunkingHandlerTest : public MediaHandlerGraphTestBase {
@@ -52,6 +66,12 @@ class ChunkingHandlerTest : public MediaHandlerGraphTestBase {
 
   Status OnFlushRequest(int stream_index) {
     return chunking_handler_->OnFlushRequest(stream_index);
+  }
+
+  // Overrides the wall-clock reading used to seed the PTS wrap offset, via
+  // the ChunkingHandlerTest friendship (there is no production setter).
+  void SetNowForTesting(int64_t now_us) {
+    chunking_handler_->now_us_for_testing_ = [now_us] { return now_us; };
   }
 
  protected:
@@ -256,6 +276,192 @@ TEST_F(ChunkingHandlerTest, LowLatencyDash) {
           // Chunk 2 for segment 2
           IsMediaSample(kStreamIndex, kSegmentDurationInMs + kChunkDurationInMs,
                         kChunkDurationInMs, !kEncrypted, _)));
+}
+
+TEST_F(ChunkingHandlerTest, EpochAnchoredSegmentNumbers) {
+  // Anchor PTS 0 at 2026-01-01T00:00:00Z with 1 second segments, so the
+  // expected first number is that instant in seconds.
+  const int64_t k2026Us = 1767225600000000LL;
+  ChunkingParams chunking_params;
+  chunking_params.segment_duration_in_seconds = 1;
+  chunking_params.segment_number_epoch_us = k2026Us;
+  SetUpChunkingHandler(1, chunking_params);
+  // Pin the clock to the anchor itself (PTS 0) so the wrap-offset seeding
+  // added for restart-safety resolves to zero wraps here, independent of the
+  // real wall-clock date this test happens to run on.
+  SetNowForTesting(k2026Us);
+
+  ASSERT_OK(Process(StreamData::FromStreamInfo(
+      kStreamIndex, GetVideoStreamInfo(kTimeScale1))));
+  // Two 1-second segments starting at PTS 0.
+  ASSERT_OK(Process(StreamData::FromMediaSample(
+      kStreamIndex, GetMediaSample(0, kTimeScale1, kKeyFrame))));
+  ASSERT_OK(Process(StreamData::FromMediaSample(
+      kStreamIndex, GetMediaSample(kTimeScale1, kTimeScale1, kKeyFrame))));
+  ASSERT_OK(Process(StreamData::FromMediaSample(
+      kStreamIndex, GetMediaSample(2 * kTimeScale1, kTimeScale1, kKeyFrame))));
+
+  const int64_t expected_first = k2026Us / 1000000;
+  EXPECT_THAT(GetSegmentNumbers(GetOutputStreamDataVector()),
+              ElementsAre(expected_first, expected_first + 1));
+}
+
+TEST_F(ChunkingHandlerTest, WithoutEpochUsesStartSegmentNumber) {
+  ChunkingParams chunking_params;
+  chunking_params.segment_duration_in_seconds = 1;
+  chunking_params.start_segment_number = 7;
+  SetUpChunkingHandler(1, chunking_params);
+
+  ASSERT_OK(Process(StreamData::FromStreamInfo(
+      kStreamIndex, GetVideoStreamInfo(kTimeScale1))));
+  ASSERT_OK(Process(StreamData::FromMediaSample(
+      kStreamIndex, GetMediaSample(0, kTimeScale1, kKeyFrame))));
+  ASSERT_OK(Process(StreamData::FromMediaSample(
+      kStreamIndex, GetMediaSample(kTimeScale1, kTimeScale1, kKeyFrame))));
+
+  EXPECT_THAT(GetSegmentNumbers(GetOutputStreamDataVector()), ElementsAre(7));
+}
+
+TEST_F(ChunkingHandlerTest, EpochNumbersSurviveRestartAfterPtsWrap) {
+  // Simulate a restart 30 hours into a stream: the input PTS has wrapped
+  // once, so the raw value is small, but the number must continue as though
+  // the instance had been running throughout.
+  const int32_t kTimeScale90k = 90000;
+  const int64_t k2026Us = 1767225600000000LL;
+  const int64_t kThirtyHoursUs = 30LL * 3600 * 1000000;
+  ChunkingParams chunking_params;
+  chunking_params.segment_duration_in_seconds = 1;
+  chunking_params.segment_number_epoch_us = k2026Us;
+  SetUpChunkingHandler(1, chunking_params);
+  SetNowForTesting(k2026Us + kThirtyHoursUs);
+
+  ASSERT_OK(Process(StreamData::FromStreamInfo(
+      kStreamIndex, GetVideoStreamInfo(kTimeScale90k))));
+  // Raw PTS just after the wrap.
+  ASSERT_OK(Process(StreamData::FromMediaSample(
+      kStreamIndex, GetMediaSample(0, kTimeScale90k, kKeyFrame))));
+  ASSERT_OK(Process(StreamData::FromMediaSample(
+      kStreamIndex,
+      GetMediaSample(kTimeScale90k, kTimeScale90k, kKeyFrame))));
+
+  // 2^33 ticks at 90kHz is 95443 whole seconds.
+  const int64_t expected = k2026Us / 1000000 + 95443;
+  EXPECT_THAT(GetSegmentNumbers(GetOutputStreamDataVector()),
+              ElementsAre(expected));
+}
+
+TEST_F(ChunkingHandlerTest, EpochNumbersMonotonicAcrossMidStreamWrap) {
+  // Task 3's tests used PTS values far below the 2^33 wrap threshold, so they
+  // would still pass even if EpochSegmentNumber were fed the WRAPPED
+  // timestamp instead of the value pts_unwrapper_ has unwrapped. Drive the
+  // handler across a real mid-stream wrap (no restart involved: the clock
+  // matches the stream exactly, so the seeded wrap offset is zero) and
+  // confirm segment numbers keep climbing instead of jumping back to the
+  // small numbers implied by the raw wrapped PTS.
+  const int32_t kTimeScale90k = 90000;
+  const int64_t k2026Us = 1767225600000000LL;
+  // One segment before the 2^33 wrap boundary.
+  const int64_t kPreWrapPts = (kPtsWrapAround / kTimeScale90k) * kTimeScale90k;
+  // The same timeline position as an encoder emitting 33-bit PTS would
+  // actually send it: wrapped back down near zero.
+  const int64_t kPostWrapPts1 =
+      (kPreWrapPts + kTimeScale90k) % kPtsWrapAround;
+  const int64_t kPostWrapPts2 = kPostWrapPts1 + kTimeScale90k;
+
+  ChunkingParams chunking_params;
+  chunking_params.segment_duration_in_seconds = 1;
+  chunking_params.segment_number_epoch_us = k2026Us;
+  SetUpChunkingHandler(1, chunking_params);
+  SetNowForTesting(k2026Us + PtsToMicroseconds(kPreWrapPts, kTimeScale90k));
+
+  ASSERT_OK(Process(StreamData::FromStreamInfo(
+      kStreamIndex, GetVideoStreamInfo(kTimeScale90k))));
+  ASSERT_OK(Process(StreamData::FromMediaSample(
+      kStreamIndex, GetMediaSample(kPreWrapPts, kTimeScale90k, kKeyFrame))));
+  ASSERT_OK(Process(StreamData::FromMediaSample(
+      kStreamIndex,
+      GetMediaSample(kPostWrapPts1, kTimeScale90k, kKeyFrame))));
+  ASSERT_OK(Process(StreamData::FromMediaSample(
+      kStreamIndex,
+      GetMediaSample(kPostWrapPts2, kTimeScale90k, kKeyFrame))));
+
+  const int64_t first =
+      k2026Us / 1000000 + kPreWrapPts / kTimeScale90k;
+  EXPECT_THAT(GetSegmentNumbers(GetOutputStreamDataVector()),
+              ElementsAre(first, first + 1));
+}
+
+TEST_F(ChunkingHandlerTest, EpochNumbersUnaffectedByClockSkewWithinHalfWrapPeriod) {
+  // ResolveWrapOffset snaps to the nearest whole wrap, so a residual of up
+  // to half a wrap period (~13.256h at 90kHz) is normal and does not
+  // indicate a bad anchor. This reproduces a correctly configured run with
+  // a clock skew of -36432s (~10.1h), comfortably inside that tolerance:
+  // the resolved wrap count must be the same as it would be with a
+  // perfectly matching clock. There is no log-capture harness in this test
+  // fixture, so this cannot assert that the plausibility warning stayed
+  // silent; it asserts the segment number that depends on the same
+  // wrap-offset resolution instead.
+  const int32_t kTimeScale90k = 90000;
+  const int64_t k2026Us = 1767225600000000LL;
+  const int64_t kWrapPeriodUs =
+      PtsToMicroseconds(kPtsWrapAround, kTimeScale90k);
+  const int64_t kSkewUs = 36432LL * 1000000;
+  ChunkingParams chunking_params;
+  chunking_params.segment_duration_in_seconds = 1;
+  chunking_params.segment_number_epoch_us = k2026Us;
+  SetUpChunkingHandler(1, chunking_params);
+  // One wrap period plus the skew: the residual from the nearest whole wrap
+  // is exactly kSkewUs, well inside the half-period tolerance.
+  SetNowForTesting(k2026Us + kWrapPeriodUs + kSkewUs);
+
+  ASSERT_OK(Process(StreamData::FromStreamInfo(
+      kStreamIndex, GetVideoStreamInfo(kTimeScale90k))));
+  ASSERT_OK(Process(StreamData::FromMediaSample(
+      kStreamIndex, GetMediaSample(0, kTimeScale90k, kKeyFrame))));
+  ASSERT_OK(Process(StreamData::FromMediaSample(
+      kStreamIndex,
+      GetMediaSample(kTimeScale90k, kTimeScale90k, kKeyFrame))));
+
+  // 2^33 ticks at 90kHz is 95443 whole seconds: one wrap was correctly
+  // resolved despite the clock skew.
+  const int64_t expected = k2026Us / 1000000 + 95443;
+  EXPECT_THAT(GetSegmentNumbers(GetOutputStreamDataVector()),
+              ElementsAre(expected));
+}
+
+TEST_F(ChunkingHandlerTest, EpochNumbersClampWrapOffsetBeyondHalfWrapPeriod) {
+  // When the ideal wrap correction is negative (the anchor implies the
+  // stream should read "behind" a zero-wrap timeline), ResolveWrapOffset
+  // clamps to zero rather than returning a negative offset, so the residual
+  // can be far larger than half a wrap period. This is exactly the
+  // situation the plausibility warning's new threshold is meant to flag.
+  // As above, this asserts the resulting (clamped, and therefore off by
+  // nearly a full wrap) segment number rather than the warning itself.
+  const int32_t kTimeScale90k = 90000;
+  const int64_t k2026Us = 1767225600000000LL;
+  const int64_t kWrapPeriodUs =
+      PtsToMicroseconds(kPtsWrapAround, kTimeScale90k);
+  ChunkingParams chunking_params;
+  chunking_params.segment_duration_in_seconds = 1;
+  chunking_params.segment_number_epoch_us = k2026Us;
+  SetUpChunkingHandler(1, chunking_params);
+  // The clock reads 3/4 of a wrap period before the anchor: the ideal
+  // correction would be one wrap backward, which ResolveWrapOffset cannot
+  // express, so it clamps to zero and the residual (3/4 of a wrap period)
+  // ends up well beyond the half-period tolerance.
+  SetNowForTesting(k2026Us - (3 * kWrapPeriodUs) / 4);
+
+  ASSERT_OK(Process(StreamData::FromStreamInfo(
+      kStreamIndex, GetVideoStreamInfo(kTimeScale90k))));
+  ASSERT_OK(Process(StreamData::FromMediaSample(
+      kStreamIndex, GetMediaSample(0, kTimeScale90k, kKeyFrame))));
+  ASSERT_OK(Process(StreamData::FromMediaSample(
+      kStreamIndex,
+      GetMediaSample(kTimeScale90k, kTimeScale90k, kKeyFrame))));
+
+  const int64_t expected = k2026Us / 1000000;
+  EXPECT_THAT(GetSegmentNumbers(GetOutputStreamDataVector()),
+              ElementsAre(expected));
 }
 
 }  // namespace media

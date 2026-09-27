@@ -121,9 +121,16 @@ Status LowLatencySegmentSegmenter::WriteInitialChunk(int64_t segment_number) {
     // Append the segment to output file if segment template is not specified.
     file_name_ = options().output_file_name.c_str();
   } else {
+    // Only use the real segment number for the filename when it is
+    // epoch-anchored (wall-clock derived); otherwise keep using the internal
+    // chunk counter, which is 0-based, so default output stays unchanged.
+    const int64_t filename_segment_number =
+        options().epoch_anchored_segment_numbers
+            ? segment_number
+            : static_cast<int64_t>(num_segments_);
     file_name_ = GetSegmentName(options().segment_template,
                                 sidx()->earliest_presentation_time,
-                                num_segments_, options().bandwidth);
+                                filename_segment_number, options().bandwidth);
   }
 
   // Create the segment file

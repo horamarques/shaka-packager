@@ -1426,6 +1426,35 @@ class PackagerFunctionalTest(PackagerAppTest):
                      'merge mode must heal a single-leg kill without '
                      'discontinuities')
 
+  def testEpochAnchoredNumberingAgreesAcrossInstances(self):
+    # Two packager instances over the same input, started several seconds
+    # apart, must produce identical segment numbers for the same content.
+    epoch = '2026-01-01T00:00:00Z'
+    out_a = os.path.join(self.tmp_dir, 'a')
+    out_b = os.path.join(self.tmp_dir, 'b')
+    os.makedirs(out_a)
+    os.makedirs(out_b)
+
+    names = []
+    for out_dir in (out_a, out_b):
+      stream = ('input=%s,stream=video,init_segment=%s/init.mp4,'
+                'segment_template=%s/$Number$.m4s') % (
+                    os.path.join(self.test_data_dir, 'bear-640x360.ts'),
+                    out_dir, out_dir)
+      cmd = [test_env.PACKAGER_BIN, stream,
+             '--segment_duration', '1',
+             '--segment_number_epoch', epoch,
+             '--test_packager_version', '<tag>-<hash>-<test>']
+      self.assertEqual(0, subprocess.call(cmd))
+      names.append(sorted(os.listdir(out_dir)))
+
+    self.assertEqual(names[0], names[1])
+    # And the numbers must be epoch-derived, not 1, 2, 3.
+    numbers = sorted(int(n.split('.')[0]) for n in names[0]
+                     if n.endswith('.m4s'))
+    self.assertGreater(numbers[0], 1000000000,
+                       'segment numbers are not epoch-derived: %s' % numbers)
+
   def _probeFreePorts(self, count, socket_type):
     import socket as socket_module
     ports = []
@@ -2828,6 +2857,19 @@ class PackagerCommandParsingTest(PackagerAppTest):
     self.encryption_iv = self.encryption_iv[0:-1] + 'g'
     packaging_result = self.packager.Package(
         self._GetStreams(['video']), self._GetFlags(encryption=True))
+    self.assertEqual(packaging_result, 1)
+
+  def testRejectsEpochWithStartSegmentNumber(self):
+    packaging_result = self.packager.Package(
+        self._GetStreams(['video']),
+        self._GetFlags() + ['--segment_number_epoch', '2026-01-01T00:00:00Z',
+                            '--start_segment_number', '5'])
+    self.assertEqual(packaging_result, 1)
+
+  def testRejectsMalformedEpoch(self):
+    packaging_result = self.packager.Package(
+        self._GetStreams(['video']),
+        self._GetFlags() + ['--segment_number_epoch', 'not-a-timestamp'])
     self.assertEqual(packaging_result, 1)
 
   def testEncryptionWithInvalidPsshValue1(self):

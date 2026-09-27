@@ -70,6 +70,13 @@ struct HlsParams {
   /// Custom EXT-X-MEDIA-SEQUENCE value to allow continuous media playback
   /// across packager restarts. See #691 for details.
   uint32_t media_sequence_number = 0;
+  /// True if segment numbers are derived from a wall-clock anchor (see
+  /// --segment_number_epoch), rather than being an ordinary per-playlist
+  /// counter. Only in that case should the segment number handed to
+  /// MediaPlaylist::AddSegment be adopted as EXT-X-MEDIA-SEQUENCE; an
+  /// ordinary sequential counter (which also starts from 1) must not be
+  /// mistaken for one.
+  bool epoch_anchored_segment_numbers = false;
   /// Sets EXT-X-START on the media playlists to specify the preferred point
   /// at wich the player should start playing.
   /// A positive number indicates a time offset from the beginning of the

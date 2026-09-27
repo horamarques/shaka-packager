@@ -87,12 +87,15 @@ class HlsNotifier {
   /// @param start_byte_offset is the offset of where the subsegment starts.
   ///        This should be 0 if the whole segment is a subsegment.
   /// @param size is the size in bytes.
+  /// @param segment_number, if greater than 0, seeds the media sequence
+  ///        number of the playlist when this is its first segment.
   virtual bool NotifyNewSegment(uint32_t stream_id,
                                 const std::string& segment_name,
                                 int64_t start_time,
                                 int64_t duration,
                                 uint64_t start_byte_offset,
-                                uint64_t size) = 0;
+                                uint64_t size,
+                                int64_t segment_number = 0) = 0;
 
   /// Called on every key frame. For Video only.
   /// @param stream_id is the value set by NotifyNewStream().

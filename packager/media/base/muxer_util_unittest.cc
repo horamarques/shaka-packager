@@ -119,5 +119,13 @@ TEST(MuxerUtilTest, GetSegmentNameLargeTime) {
                                             kSegmentNumber, kBandwidth));
 }
 
+TEST(MuxerUtilTest, SegmentNumberBeyond32Bits) {
+  // An epoch-anchored number for quarter-second segments in 2026 exceeds
+  // the range of uint32_t.
+  const int64_t kLargeNumber = 7068902400LL;
+  EXPECT_EQ("segment_7068902400.m4s",
+            GetSegmentName("segment_$Number$.m4s", 0, kLargeNumber, 0));
+}
+
 }  // namespace media
 }  // namespace shaka

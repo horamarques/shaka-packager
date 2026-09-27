@@ -111,7 +111,7 @@ Status ValidateSegmentTemplate(const std::string& segment_template) {
 
 std::string GetSegmentName(const std::string& segment_template,
                            int64_t segment_start_time,
-                           uint32_t segment_number,
+                           int64_t segment_number,
                            uint32_t bandwidth) {
   DCHECK_EQ(Status::OK, ValidateSegmentTemplate(segment_template));
 

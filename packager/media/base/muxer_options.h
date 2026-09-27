@@ -44,6 +44,13 @@ struct MuxerOptions {
   /// User-specified bit rate for the media stream. If zero, the muxer will
   /// attempt to estimate.
   uint32_t bandwidth = 0;
+
+  /// True if segment numbers are derived from a wall-clock anchor (see
+  /// --segment_number_epoch), rather than being an ordinary per-segmenter
+  /// counter. Only in that case should the low latency segmenter use the
+  /// real segment number for its output filenames; otherwise it must keep
+  /// using its internal chunk counter so default output is unchanged.
+  bool epoch_anchored_segment_numbers = false;
 };
 
 }  // namespace media

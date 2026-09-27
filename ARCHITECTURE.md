@@ -375,6 +375,26 @@ plans live under [docs/superpowers/](docs/superpowers/).
 - Related: TS continuity-counter discontinuities were made non-fatal, since a
   merged stream legitimately sees them.
 
+**Epoch-anchored segment numbering** (`--segment_number_epoch`, enables
+per-segment origin arbitration for the redundant-input case above)
+
+- [`EpochSegmentNumber` / `ResolveWrapOffset`](packager/media/chunking/epoch_segment_numbering.h):
+  pure numbering logic. The segment number is `floor((epoch + pts) /
+  segment_duration)` counted from the Unix epoch, and the 33-bit PTS wrap
+  count is resolved by seeding from the system clock on the first sample, so
+  a restarted instance agrees with one that never stopped.
+- [`ChunkingHandler`](packager/media/chunking/chunking_handler.cc) calls
+  these when `segment_number_epoch_us` is set, in place of the plain
+  `segment_number_` counter, and this numbering path feeds segment
+  filenames, the DASH `SegmentTemplate` `startNumber`, and (absent an
+  explicit `--hls_media_sequence_number`) the HLS `EXT-X-MEDIA-SEQUENCE`.
+  Options documented in
+  [segment_numbering_options.rst](docs/source/options/segment_numbering_options.rst).
+- Intended for live input, where PTS tracks wall clock; not meaningful for
+  file/VOD input, where numbering would instead depend on when the packager
+  ran. Does not align segment boundaries or affect key rotation, both of
+  which remain as described elsewhere in this section.
+
 **SCTE-35 pass-through** — `ts_section_scte35` parses the CUEI PID, fMP4 `emsg`
 boxes are read on the MP4 side, and `Scte35ToCueEventHandler` converts markers
 into cue events; all gated behind `--enable_scte35`. Test asset generator:

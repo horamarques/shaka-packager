@@ -9,6 +9,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 
@@ -77,6 +78,9 @@ class ChunkingHandler : public MediaHandler {
   int64_t segment_duration_ = 0;
   int64_t subsegment_duration_ = 0;
 
+  // Segment duration in microseconds, for epoch-anchored numbering.
+  int64_t segment_duration_us_ = 0;
+
   // Segment number that keeps monotically increasing.
   // Set to start_segment_number in constructor.
   int64_t segment_number_ = 1;
@@ -100,6 +104,16 @@ class ChunkingHandler : public MediaHandler {
   // values, handling wrap-around at 2^33. This ensures SegmentInfo timestamps
   // are always increasing even when input timestamps wrap around.
   PtsUnwrapper pts_unwrapper_;
+
+  // Whether the PTS unwrap offset has been seeded from the system clock yet.
+  // Only relevant when segment_number_epoch_us is set; seeding happens once,
+  // on the first media sample.
+  bool wrap_seeded_ = false;
+
+  // Returns the current wall-clock time in microseconds since the Unix
+  // epoch. Overridable by tests via the ChunkingHandlerTest friendship, so
+  // restart-safety behavior can be tested deterministically.
+  std::function<int64_t()> now_us_for_testing_;
 };
 
 }  // namespace media

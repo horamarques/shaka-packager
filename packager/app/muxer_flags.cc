@@ -101,3 +101,13 @@ ABSL_FLAG(int64_t,
           1,
           "Indicates the startNumber in DASH SegmentTemplate and HLS "
           "segment name.");
+ABSL_FLAG(std::string,
+          segment_number_epoch,
+          "",
+          "If set, segment numbers are derived from wall-clock time rather "
+          "than counted from --start_segment_number. The value is an RFC 3339 "
+          "UTC instant corresponding to media timeline zero, for example "
+          "1970-01-01T00:00:00Z. Independent packager instances configured "
+          "with the same value and fed frame-aligned inputs produce identical "
+          "segment numbers, and numbering survives a restart. Cannot be "
+          "combined with an explicit --start_segment_number.");

@@ -30,6 +30,8 @@ namespace hls {
 
 using ::testing::_;
 using ::testing::ElementsAreArray;
+using ::testing::HasSubstr;
+using ::testing::Not;
 using ::testing::ReturnArg;
 using ::testing::Values;
 using ::testing::WithParamInterface;
@@ -767,6 +769,59 @@ class LiveMediaPlaylistTest : public MediaPlaylistMultiSegmentTest {
   LiveMediaPlaylistTest()
       : MediaPlaylistMultiSegmentTest(HlsPlaylistType::kLive) {}
 };
+
+// Regression test: an epoch-derived segment number must be adopted as the
+// EXT-X-MEDIA-SEQUENCE of the playlist, since HLS otherwise keeps its own
+// counter independent of the segment number.
+TEST_F(LiveMediaPlaylistTest, EpochAnchoredMediaSequence) {
+  mutable_hls_params()->epoch_anchored_segment_numbers = true;
+  ASSERT_TRUE(media_playlist_->SetMediaInfo(valid_video_media_info_));
+
+  const int64_t kEpochNumber = 441806400LL;
+  media_playlist_->AddSegment("file1.ts", 0, 10 * kTimeScale, kZeroByteOffset,
+                              kMBytes, kEpochNumber);
+  media_playlist_->AddSegment("file2.ts", 10 * kTimeScale, 20 * kTimeScale,
+                              kZeroByteOffset, 2 * kMBytes, kEpochNumber + 1);
+  const char kExpectedOutput[] =
+      "#EXTM3U\n"
+      "#EXT-X-VERSION:6\n"
+      "## Generated with https://github.com/shaka-project/shaka-packager "
+      "version test\n"
+      "#EXT-X-TARGETDURATION:20\n"
+      "#EXT-X-MEDIA-SEQUENCE:441806400\n"
+      "#EXTINF:10.000,\n"
+      "file1.ts\n"
+      "#EXTINF:20.000,\n"
+      "file2.ts\n";
+
+  const char kMemoryFilePath[] = "memory://media.m3u8";
+  EXPECT_TRUE(media_playlist_->WriteToFile(kMemoryFilePath, false, false));
+  ASSERT_FILE_STREQ(kMemoryFilePath, kExpectedOutput);
+}
+
+// Regression test for a critical bug found in fix round 1: ChunkingHandler
+// assigns an ordinary sequential segment_number_++ (starting at 1) to every
+// segment regardless of whether epoch-anchored numbering was requested via
+// --segment_number_epoch. With hls_params_.epoch_anchored_segment_numbers at
+// its default (false), that number must never be adopted as
+// EXT-X-MEDIA-SEQUENCE, or default (non-epoch) packager output would change.
+TEST_F(LiveMediaPlaylistTest, SequentialSegmentNumberWithoutEpochFlag) {
+  ASSERT_TRUE(media_playlist_->SetMediaInfo(valid_video_media_info_));
+  ASSERT_FALSE(mutable_hls_params()->epoch_anchored_segment_numbers);
+
+  media_playlist_->AddSegment("file1.ts", 0, 10 * kTimeScale, kZeroByteOffset,
+                              kMBytes, 1);
+  media_playlist_->AddSegment("file2.ts", 10 * kTimeScale, 10 * kTimeScale,
+                              kZeroByteOffset, kMBytes, 2);
+  media_playlist_->AddSegment("file3.ts", 20 * kTimeScale, 10 * kTimeScale,
+                              kZeroByteOffset, kMBytes, 3);
+
+  const char kMemoryFilePath[] = "memory://media.m3u8";
+  EXPECT_TRUE(media_playlist_->WriteToFile(kMemoryFilePath, false, false));
+  std::string content;
+  ASSERT_TRUE(File::ReadFileToString(kMemoryFilePath, &content));
+  EXPECT_THAT(content, Not(HasSubstr("#EXT-X-MEDIA-SEQUENCE")));
+}
 
 TEST_F(LiveMediaPlaylistTest, Basic) {
   ASSERT_TRUE(media_playlist_->SetMediaInfo(valid_video_media_info_));
