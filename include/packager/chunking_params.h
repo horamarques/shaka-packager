@@ -31,6 +31,14 @@ struct ChunkingParams {
   /// Setting to subsegment_sap_aligned to true but segment_sap_aligned to false
   /// is not allowed.
   bool subsegment_sap_aligned = true;
+  /// Shifts the segment grid. Segment boundaries normally fall where the
+  /// timestamp is a multiple of the segment duration, counted from timestamp
+  /// zero. When set, they fall at this offset plus a multiple of the segment
+  /// duration instead. Any value, including a negative one, is reduced modulo
+  /// the segment duration. Use it when the channel's segment grid is not
+  /// aligned to timestamp zero, for example when packaging a window that
+  /// starts on that grid. A cue point still restarts the grid at the cue.
+  double segment_grid_offset_in_seconds = 0;
   /// Enable LL-DASH streaming.
   /// Each segment constists of many fragments, and each fragment contains one
   /// chunk. A chunk is the smallest unit and is constructed of a single moof

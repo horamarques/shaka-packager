@@ -100,6 +100,11 @@ class ChunkingHandler : public MediaHandler {
   // after cue points.
   int64_t cue_offset_ = 0;
 
+  // Shift of the segment grid in the stream's time scale, from
+  // ChunkingParams::segment_grid_offset_in_seconds, reduced modulo the segment
+  // duration. Cleared by a cue event, which restarts the grid at the cue.
+  int64_t segment_grid_offset_ = 0;
+
   // Unwraps 33-bit PTS/DTS timestamps to 64-bit monotonically increasing
   // values, handling wrap-around at 2^33. This ensures SegmentInfo timestamps
   // are always increasing even when input timestamps wrap around.

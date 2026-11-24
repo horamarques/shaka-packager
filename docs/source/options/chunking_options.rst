@@ -26,6 +26,17 @@ Chunking options
 
    Indicates the startNumber in DASH SegmentTemplate and HLS segment name.
 
+--segment_grid_offset <seconds>
+
+   Shifts the segment grid. Segment boundaries normally fall where the media
+   timestamp is a multiple of --segment_duration, counted from timestamp zero.
+   With an offset they fall at offset plus a multiple of --segment_duration.
+   The value, including a negative one, is reduced modulo the segment
+   duration. Use it when the channel's segment grid is not aligned to
+   timestamp zero, for example a just-in-time origin packaging a window that
+   starts on that grid. A cue point still restarts the grid at the cue.
+   Default 0.
+
 --ts_ttx_heartbeat_shift <90kHz ticks>
 
    For DVB-Teletext in MPEG-2 TS: timing offset (in 90kHz ticks) between

@@ -25,6 +25,7 @@
 using ::testing::_;
 using ::testing::ElementsAre;
 using ::testing::IsEmpty;
+using ::testing::Pair;
 
 namespace shaka {
 namespace media {
@@ -47,6 +48,20 @@ std::vector<int64_t> GetSegmentNumbers(
       segment_numbers.push_back(stream_data->segment_info->segment_number);
   }
   return segment_numbers;
+}
+
+// Returns (start, duration) of every full segment, skipping subsegments.
+std::vector<std::pair<int64_t, int64_t>> GetSegments(
+    const std::vector<std::unique_ptr<StreamData>>& stream_data_vector) {
+  std::vector<std::pair<int64_t, int64_t>> segments;
+  for (const auto& stream_data : stream_data_vector) {
+    if (stream_data->stream_data_type == StreamDataType::kSegmentInfo &&
+        !stream_data->segment_info->is_subsegment) {
+      segments.emplace_back(stream_data->segment_info->start_timestamp,
+                            stream_data->segment_info->duration);
+    }
+  }
+  return segments;
 }
 
 }  // namespace
@@ -462,6 +477,46 @@ TEST_F(ChunkingHandlerTest, EpochNumbersClampWrapOffsetBeyondHalfWrapPeriod) {
   const int64_t expected = k2026Us / 1000000;
   EXPECT_THAT(GetSegmentNumbers(GetOutputStreamDataVector()),
               ElementsAre(expected));
+}
+
+TEST_F(ChunkingHandlerTest, SegmentGridOffsetShiftsBoundaries) {
+  ChunkingParams chunking_params;
+  chunking_params.segment_duration_in_seconds = 1;
+  // 1.4 s reduces to 0.4 s modulo the 1 s segment duration.
+  chunking_params.segment_grid_offset_in_seconds = 1.4;
+  SetUpChunkingHandler(1, chunking_params);
+
+  ASSERT_OK(Process(StreamData::FromStreamInfo(
+      kStreamIndex, GetAudioStreamInfo(kTimeScale1))));
+  // A 2 s window that starts on the shifted grid, as a just-in-time origin
+  // would feed it. Without the offset it splits at 1000 and 2000.
+  for (int64_t pts = 400; pts < 2400; pts += 100) {
+    ASSERT_OK(Process(StreamData::FromMediaSample(
+        kStreamIndex, GetMediaSample(pts, 100, kKeyFrame))));
+  }
+  ASSERT_OK(OnFlushRequest(kStreamIndex));
+  EXPECT_THAT(GetSegments(GetOutputStreamDataVector()),
+              ElementsAre(Pair(400, 1000), Pair(1400, 1000)));
+}
+
+TEST_F(ChunkingHandlerTest, SegmentGridOffsetSamplesBeforeOffset) {
+  ChunkingParams chunking_params;
+  chunking_params.segment_duration_in_seconds = 1;
+  // -0.6 s is the same grid as 0.4 s.
+  chunking_params.segment_grid_offset_in_seconds = -0.6;
+  SetUpChunkingHandler(1, chunking_params);
+
+  ASSERT_OK(Process(StreamData::FromStreamInfo(
+      kStreamIndex, GetAudioStreamInfo(kTimeScale1))));
+  for (int64_t pts = 0; pts < 1600; pts += 100) {
+    ASSERT_OK(Process(StreamData::FromMediaSample(
+        kStreamIndex, GetMediaSample(pts, 100, kKeyFrame))));
+  }
+  ASSERT_OK(OnFlushRequest(kStreamIndex));
+  // Samples before the first boundary form their own short segment rather
+  // than merging into the next one.
+  EXPECT_THAT(GetSegments(GetOutputStreamDataVector()),
+              ElementsAre(Pair(0, 400), Pair(400, 1000), Pair(1400, 200)));
 }
 
 }  // namespace media

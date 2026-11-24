@@ -7,6 +7,7 @@
 #include <packager/media/chunking/chunking_handler.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
 #include <cstddef>
 #include <cstdint>
@@ -39,6 +40,15 @@ bool IsNewSegmentIndex(int64_t new_index, int64_t current_index) {
          // only if there is a big overlap in the timeline, in which case, we
          // will create a new segment and leave it to the player to handle it.
          new_index != current_index - 1;
+}
+
+// Division that rounds toward negative infinity, so samples before the first
+// shifted segment boundary get a negative segment index of their own instead
+// of being folded into segment 0.
+int64_t FloorDiv(int64_t numerator, int64_t denominator) {
+  const int64_t quotient = numerator / denominator;
+  return (numerator % denominator != 0 && numerator < 0) ? quotient - 1
+                                                         : quotient;
 }
 
 }  // namespace
@@ -87,6 +97,12 @@ Status ChunkingHandler::OnStreamInfo(std::shared_ptr<const StreamInfo> info) {
       chunking_params_.segment_duration_in_seconds * time_scale_;
   subsegment_duration_ =
       chunking_params_.subsegment_duration_in_seconds * time_scale_;
+  // Reduced modulo the segment duration so any offset, including a negative
+  // one, names a position inside one segment.
+  const int64_t grid_offset = std::llround(
+      chunking_params_.segment_grid_offset_in_seconds * time_scale_);
+  segment_grid_offset_ =
+      grid_offset - FloorDiv(grid_offset, segment_duration_) * segment_duration_;
   // Derived from the tick value (rather than truncating the same double a
   // second time) so this exactly agrees with the value that decides segment
   // boundaries above.
@@ -104,6 +120,8 @@ Status ChunkingHandler::OnCueEvent(std::shared_ptr<const CueEvent> event) {
   // |cue_offset_| will be applied to sample timestamp so the segment after cue
   // point have duration ~= |segment_duration_|.
   cue_offset_ = event_time_in_seconds * time_scale_;
+  // The grid restarts at the cue, so the configured offset no longer applies.
+  segment_grid_offset_ = 0;
   return Status::OK;
 }
 
@@ -151,8 +169,10 @@ Status ChunkingHandler::OnMediaSample(
       sample->is_key_frame() || !chunking_params_.segment_sap_aligned;
   if (can_start_new_segment) {
     const int64_t segment_index =
-        timestamp < cue_offset_ ? 0
-                                : (timestamp - cue_offset_) / segment_duration_;
+        timestamp < cue_offset_
+            ? 0
+            : FloorDiv(timestamp - cue_offset_ - segment_grid_offset_,
+                       segment_duration_);
     if (!segment_start_time_ ||
         IsNewSegmentIndex(segment_index, current_segment_index_)) {
       current_segment_index_ = segment_index;

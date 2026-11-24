@@ -101,6 +101,14 @@ ABSL_FLAG(int64_t,
           1,
           "Indicates the startNumber in DASH SegmentTemplate and HLS "
           "segment name.");
+ABSL_FLAG(double,
+          segment_grid_offset,
+          0,
+          "Shifts segment boundaries by this many seconds. Boundaries "
+          "normally fall where the media timestamp is a multiple of "
+          "--segment_duration; with an offset they fall at offset plus a "
+          "multiple of --segment_duration. The value is reduced modulo the "
+          "segment duration. A cue point still restarts the grid.");
 ABSL_FLAG(std::string,
           segment_number_epoch,
           "",

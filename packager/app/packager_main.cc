@@ -435,6 +435,8 @@ std::optional<PackagingParams> GetPackagingParams() {
       absl::GetFlag(FLAGS_fragment_sap_aligned);
   chunking_params.start_segment_number =
       absl::GetFlag(FLAGS_start_segment_number);
+  chunking_params.segment_grid_offset_in_seconds =
+      absl::GetFlag(FLAGS_segment_grid_offset);
   chunking_params.ts_ttx_heartbeat_shift =
       absl::GetFlag(FLAGS_ts_ttx_heartbeat_shift);
 
